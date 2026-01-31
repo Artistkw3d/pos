@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>نظام نقاط البيع</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <!-- Login -->
+    <div class="login-overlay" id="loginOverlay">
+        <div class="login-box">
+            <div class="login-logo">🛍️</div>
+            <h1 class="login-title">نظام نقاط البيع</h1>
+            <form class="login-form" id="loginForm">
+                <div class="login-form-group">
+                    <label>اسم المستخدم</label>
+                    <input type="text" id="loginUsername" required>
+                </div>
+                <div class="login-form-group">
+                    <label>كلمة المرور</label>
+                    <input type="password" id="loginPassword" required>
+                </div>
+                <button type="submit" class="login-btn">دخول</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Main -->
+    <div class="container" id="mainContainer" style="display: none;">
+        <div class="header">
+            <div class="header-left">
+                <button class="header-btn active" onclick="showTab('pos')" data-tab="pos">💳 POS</button>
+                <button class="header-btn" onclick="showTab('products')" data-tab="products">📦 المنتجات</button>
+                <button class="header-btn" onclick="showTab('inventory')" data-tab="inventory">📋 المخزون</button>
+                <button class="header-btn" onclick="showTab('invoices')" data-tab="invoices">🧾 الفواتير</button>
+                <button class="header-btn" onclick="showTab('customers')" data-tab="customers">👥 العملاء</button>
+                <button class="header-btn" onclick="showTab('reports')" data-tab="reports">📊 التقارير</button>
+                <button class="header-btn" onclick="showTab('expenses')" data-tab="expenses" id="expensesBtn" style="display: none;">💰 التكاليف</button>
+                <button class="header-btn" onclick="showTab('advancedreports')" data-tab="advancedreports" id="advancedReportsBtn" style="display: none;">📈 تقارير متقدمة</button>
+                <button class="header-btn" onclick="showTab('systemlogs')" data-tab="systemlogs" id="systemLogsBtn" style="display: none;">📋 سجل النظام</button>
+                <button class="header-btn" onclick="showTab('accounting')" data-tab="accounting">💰 المحاسبة</button>
+                <button class="header-btn" onclick="showTab('users')" data-tab="users" id="usersBtn" style="display: none;">👥 المستخدمين</button>
+                <button class="header-btn" onclick="showTab('branches')" data-tab="branches" id="branchesBtn" style="display: none;">🏢 الفروع</button>
+                <button class="header-btn" onclick="showTab('attendance')" data-tab="attendance">⏰ الحضور</button>
+                <button class="header-btn" onclick="showTab('settings')" data-tab="settings" id="settingsBtn" style="display: none;">⚙️ إعدادات</button>
+            </div>
+            <div class="header-center"><h1>🛍️ نظام نقاط البيع</h1></div>
+            <div class="header-right">
+                <span class="user-info" id="userInfo"></span>
+                <button class="logout-btn" onclick="logout()">خروج</button>
+            </div>
+        </div>
+
+        <!-- POS Tab -->
+        <div class="tab-content active" id="posTab">
+            <div class="main-content">
+                <div class="products-section">
+                    <div class="search-box">
+                        <input type="text" id="searchInput" placeholder="🔍 ابحث..." onkeyup="searchProducts()">
+                    </div>
+                    <div class="products-grid" id="productsGrid"></div>
+                </div>
+
+                <div class="cart-section">
+                    <div class="cart-header"><h2>🛒 السلة</h2><button class="clear-cart-btn" onclick="clearCart()">مسح</button></div>
+                    
+                    <div class="customer-section">
+                        <h3>👤 معلومات العميل</h3>
+                        <input type="text" id="customerName" placeholder="الاسم">
+                        <input type="tel" id="customerPhone" placeholder="الهاتف">
+                        <input type="text" id="customerAddress" placeholder="العنوان">
+                    </div>
+
+                    <div class="payment-section">
+                        <h3>💳 الدفع</h3>
+                        <select id="paymentMethod" onchange="toggleTransactionNumber()">
+                            <option value="cash">💵 نقداً</option>
+                            <option value="knet">💳 كي نت</option>
+                            <option value="visa">💳 فيزا</option>
+                            <option value="other">💰 أخرى</option>
+                        </select>
+                        <input type="text" id="transactionNumber" placeholder="رقم العملية" style="display: none;">
+                    </div>
+
+                    <div class="cart-items" id="cartItems">
+                        <div class="empty-cart"><div class="empty-cart-icon">🛒</div><p>السلة فارغة</p></div>
+                    </div>
+
+                    <div class="invoice-summary">
+                        <div class="summary-row"><span>المجموع:</span><span id="subtotal">0.000 د.ك</span></div>
+                        <div class="summary-row">
+                            <span>الخصم:</span>
+                            <div style="display: flex; gap: 5px; align-items: center;">
+                                <input type="number" id="discountInput" value="0" min="0" step="0.001" style="width: 80px;" onchange="updateTotals()">
+                                <select id="discountType" onchange="updateTotals()" style="width: 70px; padding: 5px;">
+                                    <option value="amount">د.ك</option>
+                                    <option value="percent">%</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="summary-row"><span>رسوم التوصيل:</span><input type="number" id="deliveryFee" value="0" min="0" step="0.001" style="width: 100px;" onchange="updateTotals()"></div>
+                        <div class="summary-row total"><span>الإجمالي:</span><span id="total">0.000 د.ك</span></div>
+                    </div>
+
+                    <div class="action-buttons">
+                        <button class="complete-btn" onclick="completeSale()">✅ إتمام</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Products Tab -->
+        <div class="tab-content" id="productsTab" style="display: none;">
+            <div style="padding: 20px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+                    <h2>📦 المنتجات</h2>
+                    <button class="add-btn" onclick="showAddProduct()">➕ إضافة</button>
+                </div>
+                
+                <!-- بحث متقدم -->
+                <div style="background: #f8f9fa; padding: 15px; border-radius: 10px; margin-bottom: 20px;">
+                    <h3 style="margin: 0 0 15px; font-size: 16px;">🔍 بحث متقدم</h3>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
+                        <input type="text" id="searchProductName" placeholder="اسم المنتج..." onkeyup="advancedSearchProducts()" style="padding: 8px; border: 2px solid #cbd5e0; border-radius: 6px;">
+                        <input type="text" id="searchProductBarcode" placeholder="الباركود..." onkeyup="advancedSearchProducts()" style="padding: 8px; border: 2px solid #cbd5e0; border-radius: 6px;">
+                        <select id="searchProductCategory" onchange="advancedSearchProducts()" style="padding: 8px; border: 2px solid #cbd5e0; border-radius: 6px;">
+                            <option value="">كل الفئات</option>
+                        </select>
+                        <input type="number" id="searchPriceMin" placeholder="السعر من..." onkeyup="advancedSearchProducts()" style="padding: 8px; border: 2px solid #cbd5e0; border-radius: 6px;">
+                        <input type="number" id="searchPriceMax" placeholder="السعر إلى..." onkeyup="advancedSearchProducts()" style="padding: 8px; border: 2px solid #cbd5e0; border-radius: 6px;">
+                        <button onclick="clearAdvancedSearch()" style="padding: 8px 15px; background: #dc3545; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">مسح</button>
+                    </div>
+                </div>
+                
+                <div id="productsTableContainer"></div>
+            </div>
+        </div>
+
+        <!-- Master Inventory Tab -->
+        <div class="tab-content" id="inventoryTab" style="display: none;">
+            <div style="padding: 20px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 20px; align-items: center;">
+                    <h2>📋 المخزون الرئيسي</h2>
+                    <button class="add-btn" onclick="showAddInventory()">➕ إضافة منتج</button>
+                </div>
+                
+                <div style="background: #e3f2fd; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #2196f3;">
+                    <strong>💡 كيف يعمل النظام:</strong>
+                    <ol style="margin: 10px 0 0 20px;">
+                        <li>أضف المنتج هنا في <strong>المخزون الرئيسي</strong></li>
+                        <li>اذهب لتبويب <strong>المنتجات</strong> لتوزيعه على الفروع</li>
+                        <li>المنتج الواحد يمكن توزيعه على عدة فروع بكميات مختلفة</li>
+                    </ol>
+                </div>
+                
+                <div id="inventoryTableContainer"></div>
+            </div>
+        </div>
+
+        <!-- Products Tab (Branch Distribution) -->
+        <div class="tab-content" id="invoicesTab" style="display: none;">
+            <div style="padding: 20px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+                    <h2>🧾 الفواتير</h2>
+                    <div style="display: flex; gap: 10px;">
+                        <button class="btn" onclick="exportInvoicesExcel()">📊 تصدير Excel</button>
+                        <button class="btn-danger" onclick="clearAllInvoices()" id="clearInvoicesBtn" style="display: none;">🗑️ حذف الكل</button>
+                    </div>
+                </div>
+                <div id="invoicesListContainer"></div>
+            </div>
+        </div>
+
+        <!-- Customers Tab (CRM) -->
+        <div class="tab-content" id="customersTab" style="display: none;">
+            <div style="padding: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2>👥 العملاء (CRM)</h2>
+                    <button onclick="showAddCustomer()" class="add-btn">➕ إضافة عميل</button>
+                </div>
+                
+                <div style="background: white; padding: 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+                        <div class="form-group">
+                            <label>البحث:</label>
+                            <input type="text" id="customerSearch" placeholder="اسم، هاتف، عنوان..." onkeyup="searchCustomers()">
+                        </div>
+                        <div style="display: flex; align-items: flex-end; gap: 10px;">
+                            <button onclick="loadCustomers()" class="btn">🔍 عرض الكل</button>
+                            <button onclick="exportCustomersExcel()" class="btn" style="background: #38a169;">📊 تصدير</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="customersContainer"></div>
+            </div>
+        </div>
+
+        <!-- Reports Tab -->
+        <div class="tab-content" id="reportsTab" style="display: none;">
+            <div style="padding: 20px;">
+                <h2>📊 التقارير</h2>
+                
+                <!-- فلاتر التقارير -->
+                <div style="background: #f8f9fa; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; align-items: end;">
+                        <div>
+                            <label style="display: block; margin-bottom: 5px; font-weight: bold;">من تاريخ:</label>
+                            <input type="date" id="reportStartDate" style="width: 100%; padding: 10px; border: 2px solid #cbd5e0; border-radius: 6px;">
+                        </div>
+                        <div>
+                            <label style="display: block; margin-bottom: 5px; font-weight: bold;">إلى تاريخ:</label>
+                            <input type="date" id="reportEndDate" style="width: 100%; padding: 10px; border: 2px solid #cbd5e0; border-radius: 6px;">
+                        </div>
+                        <div>
+                            <label style="display: block; margin-bottom: 5px; font-weight: bold;">الفرع:</label>
+                            <select id="reportBranch" style="width: 100%; padding: 10px; border: 2px solid #cbd5e0; border-radius: 6px;">
+                                <option value="">كل الفروع</option>
+                            </select>
+                        </div>
+                        <button onclick="loadSalesReport()" class="btn" style="background: #667eea;">📊 مبيعات</button>
+                        <button onclick="loadInventoryReport()" class="btn" style="background: #38a169;">📦 مخزون</button>
+                        <button onclick="loadDamagedReport()" class="btn" style="background: #e53e3e;">💔 تالف</button>
+                    </div>
+                </div>
+                
+                <!-- نتائج التقارير -->
+                <div id="reportsContent"></div>
+            </div>
+        </div>
+
+        <!-- System Logs Tab -->
+        <div class="tab-content" id="systemlogsTab" style="display: none;">
+            <div style="padding: 20px;">
+                <h2>📋 سجل النظام</h2>
+                <div style="background: #fff3cd; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #ffc107;">
+                    <strong>ℹ️ ملاحظة:</strong> هذا السجل متاح للمدير فقط ويعرض جميع العمليات في النظام
+                </div>
+                <div id="systemLogsContent"></div>
+            </div>
+        </div>
+
+        <!-- Accounting Tab -->
+        <div class="tab-content" id="accountingTab" style="display: none;">
+            <div style="padding: 20px;" id="accountingContent"></div>
+        </div>
+
+        <!-- Users Tab -->
+        <div class="tab-content" id="usersTab" style="display: none;">
+            <div style="padding: 20px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+                    <h2>👥 المستخدمين</h2>
+                    <button class="add-btn" onclick="showAddUser()">➕ إضافة</button>
+                </div>
+                <div id="usersTableContainer"></div>
+            </div>
+        </div>
+
+        <!-- Branches Tab -->
+        <div class="tab-content" id="branchesTab" style="display: none;">
+            <div style="padding: 20px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+                    <h2>🏢 إدارة الفروع</h2>
+                    <button class="add-btn" onclick="showAddBranch()">➕ إضافة فرع</button>
+                </div>
+                <div id="branchesTableContainer"></div>
+            </div>
+        </div>
+
+        <!-- Attendance Tab -->
+        <div class="tab-content" id="attendanceTab" style="display: none;">
+            <div style="padding: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2>⏰ سجل الحضور والانصراف</h2>
+                    <button class="btn" onclick="checkOut()" style="background: #e53e3e; font-size: 16px;">🚪 تسجيل الخروج</button>
+                </div>
+                
+                <div style="background: #f8f9fa; padding: 15px; border-radius: 10px; margin-bottom: 20px;">
+                    <h3 style="margin: 0 0 10px;">🔍 فلترة السجل</h3>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
+                        <select id="filterAttendanceUser" onchange="loadAttendanceLog()" style="padding: 8px; border: 2px solid #cbd5e0; border-radius: 6px;">
+                            <option value="">كل الموظفين</option>
+                        </select>
+                        <input type="date" id="filterAttendanceDate" onchange="loadAttendanceLog()" style="padding: 8px; border: 2px solid #cbd5e0; border-radius: 6px;">
+                        <button onclick="clearAttendanceFilters()" style="padding: 8px 15px; background: #dc3545; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">مسح الفلاتر</button>
+                    </div>
+                </div>
+                
+                <div id="attendanceTableContainer"></div>
+            </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div class="tab-content" id="settingsTab" style="display: none;">
+            <div style="padding: 20px;">
+                <h2>⚙️ الإعدادات</h2>
+                <div style="max-width: 600px;">
+                    <div class="form-group"><label>اسم المتجر:</label><input type="text" id="storeName"></div>
+                    <div class="form-group"><label>رقم الهاتف:</label><input type="tel" id="storePhone"></div>
+                    <div class="form-group"><label>العنوان:</label><input type="text" id="storeAddress"></div>
+                    <div class="form-group">
+                        <label>شعار المتجر:</label>
+                        <input type="file" id="storeLogo" accept="image/*" onchange="previewLogo(this)">
+                        <div id="logoPreview" style="margin-top: 10px; display: none;">
+                            <img id="logoPreviewImg" style="max-width: 200px; max-height: 100px; border-radius: 8px;">
+                            <button onclick="removeLogo()" class="btn-danger" style="margin-top: 10px;">حذف الشعار</button>
+                        </div>
+                    </div>
+                    <button onclick="saveSettings()" class="btn">حفظ</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Expenses Tab -->
+        <div class="tab-content" id="expensesTab" style="display: none;">
+            <div style="padding: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2>💰 التكاليف</h2>
+                    <button onclick="showAddExpense()" class="add-btn">➕ إضافة تكلفة</button>
+                </div>
+                
+                <div style="background: white; padding: 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+                        <div class="form-group">
+                            <label>من تاريخ:</label>
+                            <input type="date" id="expenseStartDate">
+                        </div>
+                        <div class="form-group">
+                            <label>إلى تاريخ:</label>
+                            <input type="date" id="expenseEndDate">
+                        </div>
+                        <div class="form-group">
+                            <label>الفرع:</label>
+                            <select id="expenseBranchFilter">
+                                <option value="">كل الفروع</option>
+                            </select>
+                        </div>
+                        <div style="display: flex; align-items: flex-end;">
+                            <button onclick="loadExpenses()" class="btn">عرض</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="expensesContainer"></div>
+            </div>
+        </div>
+
+        <!-- Advanced Reports Tab -->
+        <div class="tab-content" id="advancedreportsTab" style="display: none;">
+            <div style="padding: 20px;">
+                <h2>📈 التقارير المتقدمة</h2>
+                
+                <div style="background: white; padding: 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+                        <div class="form-group">
+                            <label>من تاريخ:</label>
+                            <input type="date" id="advReportStartDate">
+                        </div>
+                        <div class="form-group">
+                            <label>إلى تاريخ:</label>
+                            <input type="date" id="advReportEndDate">
+                        </div>
+                        <div class="form-group">
+                            <label>الفرع:</label>
+                            <select id="advReportBranchFilter">
+                                <option value="">كل الفروع</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="display: flex; gap: 15px; margin-bottom: 30px; flex-wrap: wrap;">
+                    <button onclick="loadProductReport()" class="btn" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); flex: 1; min-width: 200px; padding: 15px;">📦 المبيعات حسب المنتج</button>
+                    <button onclick="loadBranchReport()" class="btn" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); flex: 1; min-width: 200px; padding: 15px;">🏢 المبيعات حسب الفرع</button>
+                    <button onclick="loadProfitLossReport()" class="btn" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); flex: 1; min-width: 200px; padding: 15px;">💰 الربح والخسارة</button>
+                </div>
+                
+                <div id="advancedReportContent"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Inventory Modal -->
+    <div class="modal" id="addInventoryModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="inventoryModalTitle">➕ إضافة منتج للمخزون</h2>
+                <button class="close-btn" onclick="closeAddInventory()">✖️</button>
+            </div>
+            <div class="modal-body">
+                <form id="inventoryForm">
+                    <input type="hidden" id="inventoryId">
+                    <div class="form-group"><label>اسم المنتج:</label><input type="text" id="inventoryName" required></div>
+                    <div class="form-group"><label>الباركود:</label><input type="text" id="inventoryBarcode"></div>
+                    <div class="form-group"><label>السعر (د.ك):</label><input type="number" id="inventoryPrice" step="0.001" required></div>
+                    <div class="form-group"><label>التكلفة (د.ك):</label><input type="number" id="inventoryCost" step="0.001"></div>
+                    <div class="form-group">
+                        <label>الفئة:</label>
+                        <select id="inventoryCategory">
+                            <option value="">-- اختر فئة --</option>
+                        </select>
+                        <input type="text" id="inventoryNewCategory" placeholder="أو أضف فئة جديدة" style="margin-top: 5px;">
+                    </div>
+                    <div class="form-group">
+                        <label>صورة المنتج:</label>
+                        <input type="file" id="inventoryImageInput" accept="image/*" style="display: none;" onchange="handleInventoryImage(this)">
+                        <button type="button" onclick="document.getElementById('inventoryImageInput').click()" class="btn" style="background: #38a169;">📷 رفع صورة</button>
+                        <input type="hidden" id="inventoryImageData">
+                        <div id="inventoryImagePreview" style="margin-top: 10px; display: none; text-align: center; padding: 15px; border: 2px solid #cbd5e0; border-radius: 8px; background: #f8f9fa;">
+                            <div id="inventoryImageDisplay" style="margin: 10px 0;"></div>
+                            <button type="button" onclick="removeInventoryImage()" class="btn-danger">🗑️ حذف الصورة</button>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn">حفظ</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Distribution Modal -->
+    <div class="modal" id="distributionModal">
+        <div class="modal-content" style="max-width: 800px;">
+            <div class="modal-header">
+                <h2 id="distributionModalTitle">📤 توزيع المنتج على الفروع</h2>
+                <button class="close-btn" onclick="closeDistribution()">✖️</button>
+            </div>
+            <div class="modal-body">
+                <div id="distributionProductInfo" style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px;"></div>
+                
+                <h3>التوزيعات الحالية:</h3>
+                <div id="currentDistributions" style="margin-bottom: 20px;"></div>
+                
+                <h3>إضافة توزيع جديد:</h3>
+                <form id="distributionForm" style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: end;">
+                    <div>
+                        <label>الفرع:</label>
+                        <select id="distributionBranch" required style="width: 100%; padding: 10px; border: 2px solid #cbd5e0; border-radius: 6px;">
+                        </select>
+                    </div>
+                    <div>
+                        <label>الكمية:</label>
+                        <input type="number" id="distributionStock" required min="1" style="width: 100%; padding: 10px; border: 2px solid #cbd5e0; border-radius: 6px;">
+                    </div>
+                    <button type="submit" class="btn" style="background: #38a169;">➕ إضافة</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Damage Report Modal -->
+    <div class="modal" id="damageModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>💔 تسجيل تالف</h2>
+                <button class="close-btn" onclick="closeDamageModal()">✖️</button>
+            </div>
+            <div class="modal-body">
+                <div id="damageProductInfo" style="background: #fff3cd; padding: 15px; border-radius: 8px; margin-bottom: 20px;"></div>
+                <form id="damageForm">
+                    <input type="hidden" id="damageInventoryId">
+                    <div class="form-group">
+                        <label>الفرع:</label>
+                        <select id="damageBranch" required onchange="updateDamageStock()" style="padding: 10px; border: 2px solid #cbd5e0; border-radius: 6px; width: 100%;">
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>المخزون المتاح:</label>
+                        <div id="availableStock" style="font-size: 18px; font-weight: bold; color: #38a169; padding: 10px; background: #f0fff4; border-radius: 5px;">-</div>
+                    </div>
+                    <div class="form-group">
+                        <label>الكمية التالفة:</label>
+                        <input type="number" id="damageQuantity" required min="1" style="padding: 10px; border: 2px solid #cbd5e0; border-radius: 6px; width: 100%;">
+                    </div>
+                    <div class="form-group">
+                        <label>السبب:</label>
+                        <textarea id="damageReason" rows="3" style="padding: 10px; border: 2px solid #cbd5e0; border-radius: 6px; width: 100%; resize: vertical;" placeholder="مثال: انكسر، منتهي الصلاحية، تلف أثناء النقل..."></textarea>
+                    </div>
+                    <button type="submit" class="btn" style="background: #e53e3e;">💔 تسجيل التالف</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Product Modal -->
+    <div class="modal" id="addProductModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="productModalTitle">➕ إضافة منتج</h2>
+                <button class="close-btn" onclick="closeAddProduct()">✖️</button>
+            </div>
+            <div class="modal-body">
+                <form id="productForm">
+                    <input type="hidden" id="productId">
+                    <div class="form-group"><label>اسم المنتج:</label><input type="text" id="productName" required></div>
+                    <div class="form-group"><label>الباركود:</label><input type="text" id="productBarcode"></div>
+                    <div class="form-group"><label>السعر (د.ك):</label><input type="number" id="productPrice" step="0.001" required></div>
+                    <div class="form-group"><label>التكلفة (د.ك):</label><input type="number" id="productCost" step="0.001"></div>
+                    <div class="form-group"><label>المخزون:</label><input type="number" id="productStock" value="0"></div>
+                    <div class="form-group">
+                        <label>الفئة:</label>
+                        <select id="productCategory">
+                            <option value="">-- اختر فئة --</option>
+                        </select>
+                        <input type="text" id="newCategory" placeholder="أو أضف فئة جديدة" style="margin-top: 5px;">
+                    </div>
+                    <div class="form-group" id="productBranchField">
+                        <label>الفرع:</label>
+                        <select id="productBranch">
+                            <option value="1">الفرع الرئيسي</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>صورة المنتج:</label>
+                        <input type="file" id="productImageInput" accept="image/*" style="display: none;" onchange="handleProductImage(this)">
+                        <button type="button" onclick="document.getElementById('productImageInput').click()" class="btn" style="background: #38a169;">📷 رفع صورة</button>
+                        <input type="hidden" id="productImageData">
+                        <div id="productImagePreview" style="margin-top: 10px; display: none; text-align: center; padding: 15px; border: 2px solid #cbd5e0; border-radius: 8px; background: #f8f9fa;">
+                            <div id="productImageDisplay" style="margin: 10px 0;"></div>
+                            <button type="button" onclick="removeProductImage()" class="btn-danger">🗑️ حذف الصورة</button>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn">حفظ</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add User Modal -->
+    <div class="modal" id="addUserModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="userModalTitle">➕ إضافة مستخدم</h2>
+                <button class="close-btn" onclick="closeAddUser()">✖️</button>
+            </div>
+            <div class="modal-body">
+                <form id="userForm">
+                    <input type="hidden" id="userId">
+                    <div class="form-group"><label>اسم المستخدم:</label><input type="text" id="username" required></div>
+                    <div class="form-group"><label>كلمة المرور:</label><input type="password" id="userPassword" required></div>
+                    <div class="form-group"><label>الاسم الكامل:</label><input type="text" id="fullName" required></div>
+                    <div class="form-group">
+                        <label>الصلاحية:</label>
+                        <select id="userRole">
+                            <option value="cashier">كاشير</option>
+                            <option value="admin">مدير</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>الفرع:</label>
+                        <select id="userBranch">
+                            <option value="1">الفرع الرئيسي</option>
+                        </select>
+                    </div>
+                    <div class="form-group"><label>بادئة الفاتورة:</label><input type="text" id="invoicePrefix" maxlength="10" placeholder="AHM, S1"></div>
+                    
+                    <div class="form-group" id="permissionsSection" style="display: none;">
+                        <label style="font-weight: bold; font-size: 16px; margin-bottom: 10px; display: block; color: #667eea;">🔒 الصلاحيات التفصيلية</label>
+                        <div style="border: 2px solid #e2e8f0; padding: 15px; border-radius: 8px; background: #f8f9fa;">
+                            
+                            <div style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #cbd5e0;">
+                                <strong style="color: #667eea; font-size: 14px;">📦 المنتجات</strong>
+                                <div style="margin: 10px 0 5px 20px;">
+                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 5px 0;">
+                                        <input type="checkbox" name="can_view_products" style="width: 18px; height: 18px;" checked>
+                                        <span>👁️ عرض المنتجات</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 5px 0;">
+                                        <input type="checkbox" name="can_add_products" style="width: 18px; height: 18px;">
+                                        <span>➕ إضافة منتجات</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 5px 0;">
+                                        <input type="checkbox" name="can_edit_products" style="width: 18px; height: 18px;">
+                                        <span>✏️ تعديل منتجات</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 5px 0;">
+                                        <input type="checkbox" name="can_delete_products" style="width: 18px; height: 18px;">
+                                        <span>🗑️ حذف منتجات</span>
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <div style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #cbd5e0;">
+                                <strong style="color: #667eea; font-size: 14px;">📋 المخزون</strong>
+                                <div style="margin: 10px 0 5px 20px;">
+                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 5px 0;">
+                                        <input type="checkbox" name="can_view_inventory" style="width: 18px; height: 18px;">
+                                        <span>👁️ عرض المخزون</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 5px 0;">
+                                        <input type="checkbox" name="can_add_inventory" style="width: 18px; height: 18px;">
+                                        <span>➕ إضافة للمخزون</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 5px 0;">
+                                        <input type="checkbox" name="can_edit_inventory" style="width: 18px; height: 18px;">
+                                        <span>✏️ تعديل المخزون</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 5px 0;">
+                                        <input type="checkbox" name="can_delete_inventory" style="width: 18px; height: 18px;">
+                                        <span>🗑️ حذف من المخزون</span>
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <div style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #cbd5e0;">
+                                <strong style="color: #667eea; font-size: 14px;">🧾 الفواتير</strong>
+                                <div style="margin: 10px 0 5px 20px;">
+                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 5px 0;">
+                                        <input type="checkbox" name="can_view_invoices" style="width: 18px; height: 18px;" checked>
+                                        <span>👁️ عرض كل الفواتير</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 5px 0;">
+                                        <input type="checkbox" name="can_delete_invoices" style="width: 18px; height: 18px;">
+                                        <span>🗑️ حذف الفواتير</span>
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <div style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #cbd5e0;">
+                                <strong style="color: #667eea; font-size: 14px;">👥 العملاء (CRM)</strong>
+                                <div style="margin: 10px 0 5px 20px;">
+                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 5px 0;">
+                                        <input type="checkbox" name="can_view_customers" style="width: 18px; height: 18px;" checked>
+                                        <span>👁️ عرض العملاء</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 5px 0;">
+                                        <input type="checkbox" name="can_add_customer" style="width: 18px; height: 18px;">
+                                        <span>➕ إضافة عميل</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 5px 0;">
+                                        <input type="checkbox" name="can_edit_customer" style="width: 18px; height: 18px;">
+                                        <span>✏️ تعديل عميل</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 5px 0;">
+                                        <input type="checkbox" name="can_delete_customer" style="width: 18px; height: 18px;">
+                                        <span>🗑️ حذف عميل</span>
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <div style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #cbd5e0;">
+                                <strong style="color: #667eea; font-size: 14px;">📊 التقارير والمحاسبة</strong>
+                                <div style="margin: 10px 0 5px 20px;">
+                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 5px 0;">
+                                        <input type="checkbox" name="can_view_reports" style="width: 18px; height: 18px;">
+                                        <span>📊 عرض التقارير</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 5px 0;">
+                                        <input type="checkbox" name="can_view_accounting" style="width: 18px; height: 18px;">
+                                        <span>💰 عرض المحاسبة</span>
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <div style="margin-bottom: 10px;">
+                                <strong style="color: #667eea; font-size: 14px;">⚙️ الإدارة</strong>
+                                <div style="margin: 10px 0 5px 20px;">
+                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 5px 0;">
+                                        <input type="checkbox" name="can_manage_users" style="width: 18px; height: 18px;">
+                                        <span>👥 إدارة المستخدمين</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 5px 0;">
+                                        <input type="checkbox" name="can_access_settings" style="width: 18px; height: 18px;">
+                                        <span>⚙️ الوصول للإعدادات</span>
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <p style="font-size: 12px; color: #6c757d; margin: 15px 0 0; padding-top: 10px; border-top: 1px solid #cbd5e0;">
+                                💡 <strong>ملاحظة:</strong> المدير لديه جميع الصلاحيات تلقائياً ولا يحتاج لتحديدها
+                            </p>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn">حفظ</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Branch Modal -->
+    <div class="modal" id="addBranchModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="branchModalTitle">➕ إضافة فرع</h2>
+                <button class="close-btn" onclick="closeAddBranch()">✖️</button>
+            </div>
+            <div class="modal-body">
+                <form id="branchForm">
+                    <input type="hidden" id="branchId">
+                    <div class="form-group"><label>اسم الفرع:</label><input type="text" id="branchName" required></div>
+                    <div class="form-group"><label>الموقع:</label><input type="text" id="branchLocation"></div>
+                    <div class="form-group"><label>رقم الهاتف:</label><input type="tel" id="branchPhone"></div>
+                    <button type="submit" class="btn">حفظ</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Invoice View Modal -->
+    <div class="modal" id="invoiceViewModal">
+        <div class="modal-content" style="max-width: 800px;">
+            <div class="modal-header">
+                <h2>🧾 الفاتورة</h2>
+                <div style="display: flex; gap: 10px;">
+                    <button onclick="printInvoiceFromView()" class="btn">🖨️ طباعة</button>
+                    <button class="close-btn" onclick="closeInvoiceView()">✖️</button>
+                </div>
+            </div>
+            <div class="modal-body" id="invoiceViewContent"></div>
+        </div>
+    </div>
+
+    <!-- Add Expense Modal -->
+    <div class="modal" id="addExpenseModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="expenseModalTitle">➕ إضافة تكلفة</h2>
+                <button class="close-btn" onclick="closeAddExpense()">✖️</button>
+            </div>
+            <div class="modal-body">
+                <form id="expenseForm">
+                    <div class="form-group">
+                        <label>نوع التكلفة:</label>
+                        <select id="expenseType" required>
+                            <option value="">اختر النوع</option>
+                            <option value="إيجار">🏢 إيجار المحل</option>
+                            <option value="رواتب">💰 رواتب الموظفين</option>
+                            <option value="كهرباء وماء">⚡ كهرباء وماء</option>
+                            <option value="إنترنت واتصالات">📱 إنترنت واتصالات</option>
+                            <option value="مصاريف توصيل">🚚 مصاريف توصيل</option>
+                            <option value="صيانة">🛠️ صيانة</option>
+                            <option value="مصاريف إدارية">📝 مصاريف إدارية</option>
+                            <option value="تعبئة وتغليف">📦 تعبئة وتغليف</option>
+                            <option value="تسويق وإعلانات">📢 تسويق وإعلانات</option>
+                            <option value="أخرى">🔧 أخرى</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>المبلغ (د.ك):</label>
+                        <input type="number" id="expenseAmount" step="0.001" required>
+                    </div>
+                    <div class="form-group">
+                        <label>التاريخ:</label>
+                        <input type="date" id="expenseDate" required>
+                    </div>
+                    <div class="form-group">
+                        <label>الفرع:</label>
+                        <select id="expenseBranch">
+                            <option value="">اختر الفرع</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>الوصف:</label>
+                        <textarea id="expenseDescription" rows="3"></textarea>
+                    </div>
+                    <button type="submit" class="btn">حفظ</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Customer Modal -->
+    <div class="modal" id="addCustomerModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="customerModalTitle">➕ إضافة عميل</h2>
+                <button class="close-btn" onclick="closeAddCustomer()">✖️</button>
+            </div>
+            <div class="modal-body">
+                <form id="customerForm">
+                    <input type="hidden" id="customerId">
+                    <div class="form-group">
+                        <label>الاسم:</label>
+                        <input type="text" id="customerNameField" required>
+                    </div>
+                    <div class="form-group">
+                        <label>رقم الهاتف:</label>
+                        <input type="tel" id="customerPhoneField">
+                    </div>
+                    <div class="form-group">
+                        <label>العنوان:</label>
+                        <textarea id="customerAddressField" rows="3"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>ملاحظات:</label>
+                        <textarea id="customerNotes" rows="3"></textarea>
+                    </div>
+                    <button type="submit" class="btn">حفظ</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script>
+    // إظهار/إخفاء قسم الصلاحيات حسب الدور
+    document.addEventListener('DOMContentLoaded', function() {
+        const roleSelect = document.getElementById('userRole');
+        const permSection = document.getElementById('permissionsSection');
+        
+        if (roleSelect && permSection) {
+            roleSelect.addEventListener('change', function() {
+                if (this.value === 'cashier') {
+                    permSection.style.display = 'block';
+                } else {
+                    permSection.style.display = 'none';
+                }
+            });
+        }
+    });
+    </script>
+    <script src="app.js"></script>
+    <script src="products-search.js"></script>
+</body>
+</html>
