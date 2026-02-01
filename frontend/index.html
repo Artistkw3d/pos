@@ -6,6 +6,9 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="POS">
+    <meta name="theme-color" content="#667eea">
+    <link rel="manifest" href="manifest.json">
     <title>نظام نقاط البيع</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -44,21 +47,26 @@
                 <button class="header-btn" onclick="showTab('advancedreports')" data-tab="advancedreports" id="advancedReportsBtn" style="display: none;">📈 تقارير متقدمة</button>
                 <button class="header-btn" onclick="showTab('systemlogs')" data-tab="systemlogs" id="systemLogsBtn" style="display: none;">📋 سجل النظام</button>
                 <button class="header-btn" onclick="showTab('accounting')" data-tab="accounting">💰 المحاسبة</button>
+                <button class="header-btn" onclick="showTab('dcf')" data-tab="dcf" id="dcfBtn" style="display: none;">📈 تقييم DCF</button>
                 <button class="header-btn" onclick="showTab('users')" data-tab="users" id="usersBtn" style="display: none;">👥 المستخدمين</button>
                 <button class="header-btn" onclick="showTab('branches')" data-tab="branches" id="branchesBtn" style="display: none;">🏢 الفروع</button>
                 <button class="header-btn" onclick="showTab('attendance')" data-tab="attendance">⏰ الحضور</button>
                 <button class="header-btn" onclick="showTab('settings')" data-tab="settings" id="settingsBtn" style="display: none;">⚙️ إعدادات</button>
             </div>
-            <div class="header-center"><h1>🛍️ نظام نقاط البيع</h1></div>
+            <div class="header-center">
+                <h1>🛍️ نظام نقاط البيع</h1>
+                <div id="datetime" style="font-size: 14px; color: #667eea; margin-top: 5px;"></div>
+            </div>
             <div class="header-right">
                 <span class="user-info" id="userInfo"></span>
-                <button class="logout-btn" onclick="logout()">خروج</button>
+                <button class="logout-btn" id="logoutBtn" onclick="logout()">خروج</button>
             </div>
         </div>
 
         <!-- POS Tab -->
         <div class="tab-content active" id="posTab">
             <div class="main-content">
+                <!-- المنتجات على اليمين -->
                 <div class="products-section">
                     <div class="search-box">
                         <input type="text" id="searchInput" placeholder="🔍 ابحث..." onkeyup="searchProducts()">
@@ -66,9 +74,16 @@
                     <div class="products-grid" id="productsGrid"></div>
                 </div>
 
+                <!-- السلة على اليسار -->
                 <div class="cart-section">
                     <div class="cart-header"><h2>🛒 السلة</h2><button class="clear-cart-btn" onclick="clearCart()">مسح</button></div>
                     
+                    <!-- قائمة المنتجات البسيطة -->
+                    <div class="cart-items" id="cartItems">
+                        <div class="empty-cart"><div class="empty-cart-icon">🛒</div><p>السلة فارغة</p></div>
+                    </div>
+
+                    <!-- معلومات العميل -->
                     <div class="customer-section">
                         <h3>👤 معلومات العميل</h3>
                         <input type="text" id="customerName" placeholder="الاسم">
@@ -76,6 +91,7 @@
                         <input type="text" id="customerAddress" placeholder="العنوان">
                     </div>
 
+                    <!-- الدفع -->
                     <div class="payment-section">
                         <h3>💳 الدفع</h3>
                         <select id="paymentMethod" onchange="toggleTransactionNumber()">
@@ -87,10 +103,7 @@
                         <input type="text" id="transactionNumber" placeholder="رقم العملية" style="display: none;">
                     </div>
 
-                    <div class="cart-items" id="cartItems">
-                        <div class="empty-cart"><div class="empty-cart-icon">🛒</div><p>السلة فارغة</p></div>
-                    </div>
-
+                    <!-- الملخص -->
                     <div class="invoice-summary">
                         <div class="summary-row"><span>المجموع:</span><span id="subtotal">0.000 د.ك</span></div>
                         <div class="summary-row">
@@ -107,6 +120,7 @@
                         <div class="summary-row total"><span>الإجمالي:</span><span id="total">0.000 د.ك</span></div>
                     </div>
 
+                    <!-- الزر -->
                     <div class="action-buttons">
                         <button class="complete-btn" onclick="completeSale()">✅ إتمام</button>
                     </div>
@@ -250,6 +264,96 @@
             <div style="padding: 20px;" id="accountingContent"></div>
         </div>
 
+        <!-- DCF Valuation Tab -->
+        <div class="tab-content" id="dcfTab" style="display: none;">
+            <div style="padding: 20px;">
+                <h2>📈 تقييم الشركة - التدفقات النقدية المخصومة (DCF)</h2>
+                
+                <!-- ملاحظة توضيحية -->
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 12px; margin-bottom: 20px; color: white; box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);">
+                    <h3 style="margin-bottom: 10px;">💡 كيف تستخدم هذه الأداة:</h3>
+                    <ol style="margin: 10px 0; padding-right: 25px; line-height: 1.8;">
+                        <li>أدخل البيانات المالية للشركة في الحقول أدناه</li>
+                        <li>اضغط على زر "🧮 احسب التقييم"</li>
+                        <li>ستظهر النتائج مع جدول تفصيلي ورسم بياني</li>
+                    </ol>
+                    <p style="margin-top: 10px; font-size: 14px; opacity: 0.9;">
+                        <strong>ملاحظة:</strong> DCF هي أداة لتقييم قيمة الشركة بناءً على التدفقات النقدية المستقبلية المتوقعة.
+                    </p>
+                </div>
+                
+                <div style="background: white; padding: 25px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                    <h3 style="margin-bottom: 20px; color: #667eea;">📊 البيانات الأساسية</h3>
+                    
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; margin-bottom: 20px;">
+                        <div class="form-group">
+                            <label>التدفق النقدي الحالي (السنة 0):</label>
+                            <input type="number" id="dcf_initial_cf" step="0.01" value="100000" style="padding: 10px; border: 2px solid #cbd5e0; border-radius: 6px; width: 100%;">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>معدل النمو المتوقع (%):</label>
+                            <input type="number" id="dcf_growth_rate" step="0.1" value="5" style="padding: 10px; border: 2px solid #cbd5e0; border-radius: 6px; width: 100%;">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>معدل الخصم (WACC) (%):</label>
+                            <input type="number" id="dcf_discount_rate" step="0.1" value="10" style="padding: 10px; border: 2px solid #cbd5e0; border-radius: 6px; width: 100%;">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>عدد السنوات:</label>
+                            <input type="number" id="dcf_years" min="1" max="20" value="5" style="padding: 10px; border: 2px solid #cbd5e0; border-radius: 6px; width: 100%;">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>معدل النمو الدائم (Terminal Growth) (%):</label>
+                            <input type="number" id="dcf_terminal_growth" step="0.1" value="2" style="padding: 10px; border: 2px solid #cbd5e0; border-radius: 6px; width: 100%;">
+                        </div>
+                    </div>
+                    
+                    <button onclick="calculateDCF()" class="btn" style="width: 100%; padding: 12px; font-size: 16px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">🧮 احسب التقييم</button>
+                </div>
+                
+                <!-- النتائج -->
+                <div id="dcfResults" style="display: none;">
+                    <!-- ملخص -->
+                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 12px; color: white; margin-bottom: 20px; text-align: center; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);">
+                        <h3 style="margin-bottom: 15px;">💎 قيمة الشركة المقدرة</h3>
+                        <div style="font-size: 42px; font-weight: bold; margin: 20px 0;" id="dcfTotalValue">0</div>
+                        <div style="font-size: 14px; opacity: 0.9;">القيمة الحالية للتدفقات النقدية المستقبلية</div>
+                    </div>
+                    
+                    <!-- التفاصيل -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 20px;">
+                        <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                            <h4 style="color: #667eea; margin-bottom: 15px;">📅 التدفقات المخصومة</h4>
+                            <div style="font-size: 28px; font-weight: bold; color: #2d3748;" id="dcfPVCashFlows">0</div>
+                            <div style="font-size: 12px; color: #718096; margin-top: 5px;">القيمة الحالية للتدفقات (السنوات 1-N)</div>
+                        </div>
+                        
+                        <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                            <h4 style="color: #667eea; margin-bottom: 15px;">♾️ القيمة المتبقية</h4>
+                            <div style="font-size: 28px; font-weight: bold; color: #2d3748;" id="dcfTerminalValue">0</div>
+                            <div style="font-size: 12px; color: #718096; margin-top: 5px;">القيمة الحالية للتدفقات الدائمة</div>
+                        </div>
+                    </div>
+                    
+                    <!-- جدول التفاصيل -->
+                    <div style="background: white; padding: 25px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                        <h4 style="color: #667eea; margin-bottom: 20px;">📋 تفاصيل التدفقات السنوية</h4>
+                        <div id="dcfTable" style="overflow-x: auto;"></div>
+                    </div>
+                    
+                    <!-- الرسم البياني -->
+                    <div style="background: white; padding: 25px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-top: 20px;">
+                        <h4 style="color: #667eea; margin-bottom: 20px;">📊 تصور التدفقات النقدية</h4>
+                        <canvas id="dcfChart" style="max-height: 300px;"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Users Tab -->
         <div class="tab-content" id="usersTab" style="display: none;">
             <div style="padding: 20px;">
@@ -303,14 +407,48 @@
                     <div class="form-group"><label>اسم المتجر:</label><input type="text" id="storeName"></div>
                     <div class="form-group"><label>رقم الهاتف:</label><input type="tel" id="storePhone"></div>
                     <div class="form-group"><label>العنوان:</label><input type="text" id="storeAddress"></div>
+                    
+                    <!-- العملة -->
                     <div class="form-group">
-                        <label>شعار المتجر:</label>
+                        <label>العملة:</label>
+                        <select id="storeCurrency" style="padding: 10px; border: 2px solid #cbd5e0; border-radius: 6px; width: 100%;">
+                            <option value="KWD">🇰🇼 دينار كويتي (KWD)</option>
+                            <option value="USD">🇺🇸 دولار أمريكي (USD)</option>
+                            <option value="EUR">🇪🇺 يورو (EUR)</option>
+                            <option value="GBP">🇬🇧 جنيه إسترليني (GBP)</option>
+                            <option value="SAR">🇸🇦 ريال سعودي (SAR)</option>
+                            <option value="AED">🇦🇪 درهم إماراتي (AED)</option>
+                            <option value="QAR">🇶🇦 ريال قطري (QAR)</option>
+                            <option value="OMR">🇴🇲 ريال عماني (OMR)</option>
+                            <option value="BHD">🇧🇭 دينار بحريني (BHD)</option>
+                            <option value="EGP">🇪🇬 جنيه مصري (EGP)</option>
+                            <option value="JOD">🇯🇴 دينار أردني (JOD)</option>
+                            <option value="IQD">🇮🇶 دينار عراقي (IQD)</option>
+                            <option value="LBP">🇱🇧 ليرة لبنانية (LBP)</option>
+                            <option value="TRY">🇹🇷 ليرة تركية (TRY)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>شعار المتجر (في الفواتير):</label>
                         <input type="file" id="storeLogo" accept="image/*" onchange="previewLogo(this)">
                         <div id="logoPreview" style="margin-top: 10px; display: none;">
                             <img id="logoPreviewImg" style="max-width: 200px; max-height: 100px; border-radius: 8px;">
                             <button onclick="removeLogo()" class="btn-danger" style="margin-top: 10px;">حذف الشعار</button>
                         </div>
                     </div>
+                    
+                    <!-- أيقونة شاشة الدخول -->
+                    <div class="form-group">
+                        <label>أيقونة شاشة الدخول:</label>
+                        <input type="file" id="loginIcon" accept="image/*" onchange="previewLoginIcon(this)">
+                        <div id="loginIconPreview" style="margin-top: 10px; display: none;">
+                            <img id="loginIconPreviewImg" style="max-width: 150px; max-height: 150px; border-radius: 50%; border: 4px solid #667eea;">
+                            <button onclick="removeLoginIcon()" class="btn-danger" style="margin-top: 10px;">استعادة الأيقونة الافتراضية</button>
+                        </div>
+                        <p style="font-size: 12px; color: #666; margin-top: 5px;">* الأيقونة الافتراضية: 🛍️</p>
+                    </div>
+                    
                     <button onclick="saveSettings()" class="btn">حفظ</button>
                 </div>
             </div>
@@ -814,6 +952,107 @@
         }
     });
     </script>
+    
+    <!-- PWA Scripts -->
+    <script src="localdb.js"></script>
+    <script src="sync-manager.js"></script>
+    <script>
+    // ========================================
+    // PWA Initialization
+    // ========================================
+    
+    // تسجيل Service Worker
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/sw.js')
+                .then(reg => {
+                    console.log('[PWA] Service Worker registered ✅');
+                })
+                .catch(err => {
+                    console.error('[PWA] Service Worker registration failed:', err);
+                });
+        });
+    }
+    
+    // تهيئة IndexedDB
+    window.addEventListener('load', async () => {
+        try {
+            await localDB.init();
+            console.log('[PWA] LocalDB initialized ✅');
+            
+            // تحميل أيقونة Login من الإعدادات (قبل تسجيل الدخول)
+            try {
+                const response = await fetch(`${API_URL}/api/settings`);
+                const data = await response.json();
+                if (data.success && data.settings.login_icon) {
+                    document.querySelector('.login-logo').innerHTML = `<img src="${data.settings.login_icon}" style="width: 100px; height: 100px; border-radius: 50%; object-fit: cover;">`;
+                    console.log('[App] Login icon loaded ✅');
+                }
+            } catch (e) {
+                console.log('[App] Using default login icon');
+            }
+            
+            // تحميل المنتجات المحلية إذا offline
+            if (!navigator.onLine) {
+                const localProducts = await localDB.getAll('products');
+                if (localProducts.length > 0) {
+                    console.log('[PWA] Loaded from local cache');
+                }
+            }
+            
+            // بدء المزامنة التلقائية
+            if (navigator.onLine) {
+                setTimeout(() => syncManager.sync(), 2000);
+                syncManager.start(5); // كل 5 دقائق
+            }
+            
+            // تحديث حالة زر الخروج حسب الاتصال
+            const logoutBtn = document.getElementById('logoutBtn');
+            if (logoutBtn) {
+                if (!navigator.onLine) {
+                    logoutBtn.disabled = true;
+                    logoutBtn.style.opacity = '0.5';
+                    logoutBtn.style.cursor = 'not-allowed';
+                    logoutBtn.title = 'لا يمكن تسجيل الخروج في وضع offline';
+                }
+            }
+            
+        } catch (error) {
+            console.error('[PWA] Initialization error:', error);
+        }
+    });
+    
+    // مراقبة حالة الاتصال
+    window.addEventListener('online', () => {
+        console.log('[PWA] Online ✅');
+        syncManager.showStatus('🌐 متصل - جاري المزامنة...', 'info');
+        setTimeout(() => syncManager.sync(), 1000);
+        
+        // تفعيل زر الخروج
+        const logoutBtn = document.getElementById('logoutBtn');
+        if (logoutBtn) {
+            logoutBtn.disabled = false;
+            logoutBtn.style.opacity = '1';
+            logoutBtn.style.cursor = 'pointer';
+            logoutBtn.title = '';
+        }
+    });
+    
+    window.addEventListener('offline', () => {
+        console.log('[PWA] Offline 📴');
+        syncManager.showStatus('📴 غير متصل - الوضع المحلي', 'info');
+        
+        // تعطيل زر الخروج
+        const logoutBtn = document.getElementById('logoutBtn');
+        if (logoutBtn) {
+            logoutBtn.disabled = true;
+            logoutBtn.style.opacity = '0.5';
+            logoutBtn.style.cursor = 'not-allowed';
+            logoutBtn.title = 'لا يمكن تسجيل الخروج في وضع offline';
+        }
+    });
+    </script>
+    
     <script src="app.js"></script>
     <script src="products-search.js"></script>
 </body>

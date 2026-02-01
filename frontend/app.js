@@ -7,6 +7,103 @@ let currentInvoice = null;
 let categories = new Set();
 let storeLogo = null;
 
+// استعادة المستخدم من localStorage
+function restoreUser() {
+    const savedUser = localStorage.getItem('pos_current_user');
+    if (savedUser) {
+        try {
+            currentUser = JSON.parse(savedUser);
+            return true;
+        } catch (e) {
+            console.error('[App] Failed to restore user:', e);
+            localStorage.removeItem('pos_current_user');
+            return false;
+        }
+    }
+    return false;
+}
+
+// تهيئة الواجهة بعد استعادة المستخدم
+async function initializeUI() {
+    if (!currentUser) return;
+    
+    // إخفاء شاشة Login وإظهار النظام
+    document.getElementById('loginOverlay').classList.add('hidden');
+    document.getElementById('mainContainer').style.display = 'block';
+    
+    // عرض اسم المستخدم
+    const branchText = currentUser.branch_name ? ` - ${currentUser.branch_name}` : '';
+    document.getElementById('userInfo').textContent = `${currentUser.full_name} (${currentUser.invoice_prefix || 'INV'})${branchText}`;
+    
+    // نظام الصلاحيات
+    const isAdmin = currentUser.role === 'admin';
+    const hasPerm = (perm) => isAdmin || currentUser[perm] === 1;
+    
+    window.userPermissions = {
+        isAdmin: isAdmin,
+        canViewProducts: hasPerm('can_view_products'),
+        canAddProducts: hasPerm('can_add_products'),
+        canEditProducts: hasPerm('can_edit_products'),
+        canDeleteProducts: hasPerm('can_delete_products'),
+        canViewInventory: hasPerm('can_view_inventory'),
+        canAddInventory: hasPerm('can_add_inventory'),
+        canEditInventory: hasPerm('can_edit_inventory'),
+        canDeleteInventory: hasPerm('can_delete_inventory'),
+        canViewInvoices: hasPerm('can_view_invoices'),
+        canDeleteInvoices: hasPerm('can_delete_invoices'),
+        canViewCustomers: hasPerm('can_view_customers'),
+        canAddCustomer: hasPerm('can_add_customer'),
+        canEditCustomer: hasPerm('can_edit_customer'),
+        canDeleteCustomer: hasPerm('can_delete_customer'),
+        canViewReports: hasPerm('can_view_reports'),
+        canViewAccounting: hasPerm('can_view_accounting'),
+        canManageUsers: hasPerm('can_manage_users'),
+        canAccessSettings: hasPerm('can_access_settings')
+    };
+    
+    // إخفاء/إظهار الأزرار والتبويبات
+    document.getElementById('settingsBtn').style.display = window.userPermissions.canAccessSettings ? 'inline-block' : 'none';
+    document.getElementById('usersBtn').style.display = window.userPermissions.canManageUsers ? 'inline-block' : 'none';
+    document.getElementById('branchesBtn').style.display = isAdmin ? 'inline-block' : 'none';
+    document.getElementById('systemLogsBtn').style.display = isAdmin ? 'inline-block' : 'none';
+    document.getElementById('clearInvoicesBtn').style.display = window.userPermissions.canDeleteInvoices ? 'inline-block' : 'none';
+    document.getElementById('expensesBtn').style.display = isAdmin ? 'inline-block' : 'none';
+    document.getElementById('dcfBtn').style.display = isAdmin ? 'inline-block' : 'none';
+    document.getElementById('advancedReportsBtn').style.display = isAdmin ? 'inline-block' : 'none';
+    
+    // التبويبات
+    const customersTab = document.querySelector('[data-tab="customers"]');
+    if (customersTab) customersTab.style.display = window.userPermissions.canViewCustomers ? 'inline-block' : 'none';
+    
+    const productsTab = document.querySelector('[data-tab="products"]');
+    if (productsTab) productsTab.style.display = window.userPermissions.canViewProducts ? 'inline-block' : 'none';
+    
+    const reportTab = document.querySelector('[data-tab="reports"]');
+    if (reportTab) reportTab.style.display = window.userPermissions.canViewReports ? 'inline-block' : 'none';
+    
+    const accountingTab = document.querySelector('[data-tab="accounting"]');
+    if (accountingTab) accountingTab.style.display = window.userPermissions.canViewAccounting ? 'inline-block' : 'none';
+    
+    const inventoryTab = document.querySelector('[data-tab="inventory"]');
+    if (inventoryTab) inventoryTab.style.display = window.userPermissions.canViewInventory ? 'inline-block' : 'none';
+    
+    // إخفاء زر إضافة منتج إذا لم يكن لديه صلاحية
+    if (!window.userPermissions.canAddProducts) {
+        const addProductBtn = document.querySelector('.add-btn');
+        if (addProductBtn && addProductBtn.textContent.includes('إضافة')) {
+            addProductBtn.style.display = 'none';
+        }
+    }
+    
+    // تحميل البيانات
+    await loadProducts();
+    await loadSettings();
+    loadUserCart();
+    showTab('pos');
+    
+    console.log('[App] User restored from localStorage ✅');
+}
+
 // دوال إدارة السلة حسب المستخدم
 function loadUserCart() {
     if (!currentUser) {
@@ -49,6 +146,10 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
         const data = await response.json();
         if (data.success) {
             currentUser = data.user;
+            
+            // حفظ المستخدم في localStorage
+            localStorage.setItem('pos_current_user', JSON.stringify(data.user));
+            
             document.getElementById('loginOverlay').classList.add('hidden');
             document.getElementById('mainContainer').style.display = 'block';
             
@@ -90,6 +191,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
             document.getElementById('systemLogsBtn').style.display = isAdmin ? 'inline-block' : 'none';
             document.getElementById('clearInvoicesBtn').style.display = window.userPermissions.canDeleteInvoices ? 'inline-block' : 'none';
             document.getElementById('expensesBtn').style.display = isAdmin ? 'inline-block' : 'none';
+            document.getElementById('dcfBtn').style.display = isAdmin ? 'inline-block' : 'none';
             document.getElementById('advancedReportsBtn').style.display = isAdmin ? 'inline-block' : 'none';
             
             // التبويبات
@@ -140,6 +242,12 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
 });
 
 async function logout() {
+    // منع تسجيل الخروج في وضع offline
+    if (!navigator.onLine) {
+        alert('📴 لا يمكن تسجيل الخروج في وضع offline!\n\nالرجاء الاتصال بالإنترنت أولاً.');
+        return;
+    }
+    
     if (!confirm('هل أنت متأكد من تسجيل الخروج؟')) return;
     
     // تسجيل في سجل النظام أولاً
@@ -174,6 +282,8 @@ async function logout() {
                 localStorage.removeItem(key);
             }
         });
+        // مسح بيانات المستخدم المحفوظة
+        localStorage.removeItem('pos_current_user');
     } catch (e) {}
     
     // إعادة تعيين الواجهة
@@ -212,6 +322,7 @@ function showTab(tabName) {
         'advancedreports': 'advancedreportsTab',
         'systemlogs': 'systemlogsTab',
         'accounting': 'accountingTab',
+        'dcf': 'dcfTab',
         'users': 'usersTab',
         'branches': 'branchesTab',
         'attendance': 'attendanceTab',
@@ -285,15 +396,49 @@ function showTab(tabName) {
 async function loadProducts() {
     try {
         const branchId = currentUser?.branch_id || 1;
-        const response = await fetch(`${API_URL}/api/products?branch_id=${branchId}`);
-        const data = await response.json();
-        if (data.success) {
-            allProducts = data.products;
-            data.products.forEach(p => { if(p.category) categories.add(p.category); });
-            displayProducts(allProducts);
+        
+        // محاولة التحميل من السيرفر
+        if (navigator.onLine) {
+            const response = await fetch(`${API_URL}/api/products?branch_id=${branchId}`);
+            const data = await response.json();
+            if (data.success) {
+                allProducts = data.products;
+                data.products.forEach(p => { if(p.category) categories.add(p.category); });
+                displayProducts(allProducts);
+                
+                // حفظ في LocalDB
+                if (localDB.isReady) {
+                    await localDB.saveAll('products', data.products);
+                    console.log('[App] Products saved locally');
+                }
+            }
+        } else {
+            // Offline: تحميل من LocalDB
+            if (localDB.isReady) {
+                const localProducts = await localDB.getAll('products');
+                if (localProducts.length > 0) {
+                    allProducts = localProducts;
+                    localProducts.forEach(p => { if(p.category) categories.add(p.category); });
+                    displayProducts(allProducts);
+                    console.log('[App] Loaded from local cache (offline)');
+                } else {
+                    alert('لا توجد منتجات محفوظة محلياً. يرجى الاتصال بالإنترنت.');
+                }
+            }
         }
     } catch (error) {
         console.error('خطأ:', error);
+        
+        // تجربة التحميل من LocalDB كـ fallback
+        if (localDB.isReady) {
+            const localProducts = await localDB.getAll('products');
+            if (localProducts.length > 0) {
+                allProducts = localProducts;
+                localProducts.forEach(p => { if(p.category) categories.add(p.category); });
+                displayProducts(allProducts);
+                console.log('[App] Loaded from local cache (fallback)');
+            }
+        }
     }
 }
 
@@ -310,12 +455,37 @@ function displayProducts(products) {
         } else {
             imgDisplay = '<div class="product-card-icon">🛍️</div>';
         }
+        
+        // البحث عن المنتج في السلة
+        const cartItem = cart.find(item => item.id === p.id);
+        const inCart = cartItem ? cartItem.quantity : 0;
+        
+        let counterHTML = '';
+        if (inCart > 0) {
+            // العداد إذا موجود في السلة
+            counterHTML = `
+                <div class="product-counter">
+                    <button class="counter-btn" onclick="event.stopPropagation(); updateQuantity(${p.id}, -1)">-</button>
+                    <span class="counter-value">${inCart}</span>
+                    <button class="counter-btn" onclick="event.stopPropagation(); updateQuantity(${p.id}, 1)">+</button>
+                </div>
+            `;
+        } else {
+            // زر إضافة إذا مش موجود
+            counterHTML = `
+                <button class="add-to-cart-btn" onclick="event.stopPropagation(); addToCart(${p.id})">
+                    إضافة للسلة
+                </button>
+            `;
+        }
+        
         return `
-        <div class="product-card" onclick="addToCart(${p.id})">
+        <div class="product-card">
             ${imgDisplay}
             <div class="product-card-name">${p.name}</div>
             <div class="product-card-price">${p.price.toFixed(3)} د.ك</div>
             <div class="product-card-stock">المخزون: ${p.stock}</div>
+            ${counterHTML}
         </div>
         `;
     }).join('');
@@ -369,21 +539,15 @@ function updateCart() {
         cartItems.innerHTML = '<div class="empty-cart"><div class="empty-cart-icon">🛒</div><p>السلة فارغة</p></div>';
     } else {
         cartItems.innerHTML = cart.map(item => `
-            <div class="cart-item">
-                <div class="cart-item-info">
-                    <div class="cart-item-name">${item.name}</div>
-                    <div class="cart-item-price">${item.price.toFixed(3)} × ${item.quantity}</div>
-                </div>
-                <div class="cart-item-controls">
-                    <button class="qty-btn" onclick="updateQuantity(${item.id}, -1)">-</button>
-                    <span class="qty-display">${item.quantity}</span>
-                    <button class="qty-btn" onclick="updateQuantity(${item.id}, 1)">+</button>
-                    <button class="remove-btn" onclick="removeFromCart(${item.id})">🗑️</button>
-                </div>
+            <div class="cart-item-simple">
+                <div class="cart-item-name">${item.name}</div>
+                <div class="cart-item-price">${item.price.toFixed(3)} × ${item.quantity} = ${(item.price * item.quantity).toFixed(3)} د.ك</div>
             </div>
         `).join('');
     }
     updateTotals();
+    // تحديث عرض المنتجات لتحديث العدادات
+    displayProducts(allProducts);
 }
 
 function updateQuantity(productId, change) {
@@ -412,6 +576,40 @@ function clearCart() {
     if (confirm('مسح جميع المنتجات؟')) {
         cart = [];
         updateCart();
+    }
+}
+
+// مسح نموذج البيع
+function clearSaleForm() {
+    document.getElementById('customerName').value = '';
+    document.getElementById('customerPhone').value = '';
+    document.getElementById('customerAddress').value = '';
+    document.getElementById('discountInput').value = '0';
+    document.getElementById('deliveryFee').value = '0';
+    document.getElementById('paymentMethod').value = 'cash';
+    document.getElementById('transactionNumber').value = '';
+    toggleTransactionNumber();
+}
+
+// تحديث المخزون المحلي
+async function updateLocalStock(soldItems) {
+    if (!localDB.isReady) return;
+    
+    try {
+        const localProducts = await localDB.getAll('products');
+        
+        for (const soldItem of soldItems) {
+            const product = localProducts.find(p => p.id === soldItem.id);
+            if (product) {
+                product.stock -= soldItem.quantity;
+                if (product.stock < 0) product.stock = 0;
+                await localDB.save('products', product);
+            }
+        }
+        
+        console.log('[App] Local stock updated');
+    } catch (error) {
+        console.error('[App] Failed to update local stock:', error);
     }
 }
 
@@ -446,11 +644,13 @@ function toggleTransactionNumber() {
 }
 
 // Complete Sale
+// نسخة مبسطة من completeSale
 async function completeSale() {
     if (cart.length === 0) {
         alert('السلة فارغة!');
         return;
     }
+    
     const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
     const discountValue = parseFloat(document.getElementById('discountInput').value) || 0;
     const discountType = document.getElementById('discountType').value;
@@ -467,12 +667,14 @@ async function completeSale() {
         alert('الإجمالي يجب أن يكون أكبر من صفر');
         return;
     }
+    
     const paymentMethod = document.getElementById('paymentMethod').value;
     const transactionNumber = document.getElementById('transactionNumber').value;
     if ((paymentMethod === 'knet' || paymentMethod === 'visa') && !transactionNumber) {
         alert('الرجاء إدخال رقم العملية');
         return;
     }
+    
     const timestamp = Date.now().toString().slice(-6);
     const invoiceNumber = `${currentUser.invoice_prefix || 'INV'}-${timestamp}`;
     
@@ -480,9 +682,9 @@ async function completeSale() {
     const customerPhone = document.getElementById('customerPhone').value || '';
     const customerAddress = document.getElementById('customerAddress').value || '';
     
-    // حفظ العميل إذا كان لديه بيانات
+    // حفظ العميل إذا كان لديه بيانات (فقط online)
     let customerId = null;
-    if (customerName || customerPhone) {
+    if ((customerName || customerPhone) && navigator.onLine) {
         try {
             const customerResponse = await fetch(`${API_URL}/api/customers`, {
                 method: 'POST',
@@ -498,7 +700,7 @@ async function completeSale() {
                 customerId = customerData.id;
             }
         } catch (error) {
-            console.log('لم يتم حفظ بيانات العميل');
+            console.log('[App] Customer save skipped (offline or error)');
         }
     }
     
@@ -526,55 +728,127 @@ async function completeSale() {
         }))
     };
     
-    try {
-        const response = await fetch(`${API_URL}/api/invoices`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(invoiceData)
-        });
-        const data = await response.json();
-        if (data.success) {
-            // تسجيل العملية في السجل
-            await logAction('sale', `فاتورة ${data.invoice_number || invoiceNumber} - ${total.toFixed(3)} د.ك`, data.id);
+    // === حفظ الفاتورة ===
+    if (navigator.onLine) {
+        // Online: محاولة إرسال للسيرفر
+        try {
+            const response = await fetch(`${API_URL}/api/invoices`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(invoiceData)
+            });
+            const data = await response.json();
             
-            // إظهار رقم الفاتورة
-            alert(`✅ تم حفظ الفاتورة!\nرقم: ${data.invoice_number || invoiceNumber}`);
-            
-            // حفظ الفاتورة الحالية
-            currentInvoice = {...invoiceData, id: data.id};
-            
-            // مسح السلة تماماً
-            cart = [];
-            if (currentUser) {
-                const cartKey = `pos_cart_${currentUser.id}`;
-                localStorage.removeItem(cartKey);
+            if (data.success) {
+                // نجح الحفظ
+                try {
+                    await logAction('sale', `فاتورة ${data.invoice_number || invoiceNumber} - ${total.toFixed(3)} د.ك`, data.id);
+                } catch (e) {
+                    console.log('[App] Log action skipped');
+                }
+                
+                currentInvoice = {...invoiceData, id: data.id, created_at: new Date().toISOString(), items: invoiceData.items};
+                
+                alert(`✅ تم حفظ الفاتورة!\nرقم: ${data.invoice_number || invoiceNumber}`);
+                
+                // تحديث المخزون المحلي
+                if (localDB.isReady) {
+                    try {
+                        await updateLocalStock(cart);
+                    } catch (e) {
+                        console.log('[App] Local stock update skipped');
+                    }
+                }
+                
+                // مسح السلة
+                cart = [];
+                if (currentUser) {
+                    localStorage.removeItem(`pos_cart_${currentUser.id}`);
+                }
+                
+                clearSaleForm();
+                updateCart();
+                
+                // إعادة تحميل
+                loadProducts();
+                loadInventory();
+                
+                // عرض الفاتورة
+                setTimeout(() => {
+                    displayInvoiceView(currentInvoice);
+                    document.getElementById('invoiceViewModal').classList.add('active');
+                }, 300);
+            } else {
+                alert('خطأ: ' + data.error);
             }
-            
-            // مسح النماذج
-            document.getElementById('customerName').value = '';
-            document.getElementById('customerPhone').value = '';
-            document.getElementById('customerAddress').value = '';
-            document.getElementById('discountInput').value = '0';
-            document.getElementById('deliveryFee').value = '0';
-            document.getElementById('paymentMethod').value = 'cash';
-            document.getElementById('transactionNumber').value = '';
-            toggleTransactionNumber();
-            
-            // تحديث العرض
-            updateCart();
-            
-            // إعادة تحميل المنتجات والمخزون
-            await loadProducts();
-            await loadInventory();
-            
-            // عرض تفاصيل الفاتورة
-            setTimeout(() => viewInvoiceDetails(data.id), 500);
-        } else {
-            alert('خطأ: ' + data.error);
+        } catch (error) {
+            // فشل الاتصال - حفظ محلياً
+            console.error('[App] Server error, saving offline:', error);
+            await saveInvoiceOffline(invoiceData, invoiceNumber);
         }
+    } else {
+        // Offline: حفظ محلياً مباشرة
+        await saveInvoiceOffline(invoiceData, invoiceNumber);
+    }
+}
+
+// دالة منفصلة لحفظ الفاتورة offline
+async function saveInvoiceOffline(invoiceData, invoiceNumber) {
+    if (!localDB.isReady) {
+        alert('خطأ: قاعدة البيانات المحلية غير جاهزة.\nالرجاء إعادة تحميل الصفحة.');
+        return;
+    }
+    
+    try {
+        const offlineInvoice = {
+            ...invoiceData,
+            created_at: new Date().toISOString(),
+            id: 'offline_' + Date.now()
+        };
+        
+        // حفظ في pending_invoices للرفع
+        await localDB.add('pending_invoices', {
+            data: offlineInvoice,
+            timestamp: new Date().toISOString()
+        });
+        
+        // حفظ في local_invoices للعرض
+        await localDB.save('local_invoices', offlineInvoice);
+        
+        // تحديث المخزون المحلي
+        await updateLocalStock(cart);
+        
+        // حفظ الفاتورة الحالية
+        currentInvoice = offlineInvoice;
+        
+        alert(`📴 تم حفظ الفاتورة محلياً!\nرقم: ${invoiceNumber}\n\nسيتم رفعها عند الاتصال بالإنترنت`);
+        
+        // مسح السلة
+        cart = [];
+        if (currentUser) {
+            localStorage.removeItem(`pos_cart_${currentUser.id}`);
+        }
+        
+        clearSaleForm();
+        updateCart();
+        
+        // إعادة تحميل المنتجات من المخزون المحلي المحدث
+        const localProducts = await localDB.getAll('products');
+        if (localProducts.length > 0) {
+            allProducts = localProducts;
+            displayProducts(allProducts);
+        }
+        
+        // عرض الفاتورة
+        setTimeout(() => {
+            displayInvoiceView(currentInvoice);
+            document.getElementById('invoiceViewModal').classList.add('active');
+        }, 300);
+        
+        console.log('[App] Invoice saved offline ✅');
     } catch (error) {
-        console.error('خطأ:', error);
-        alert('فشل حفظ الفاتورة');
+        console.error('[App] Failed to save offline:', error);
+        alert('فشل حفظ الفاتورة محلياً.\nالخطأ: ' + error.message + '\n\nالرجاء إعادة المحاولة.');
     }
 }
 
@@ -693,7 +967,7 @@ ${storeLogo ? `<img src="${storeLogo}">` : ''}
 </div>
 <div class="info">
 <div><b>رقم الفاتورة:</b> ${inv.invoice_number}</div>
-<div><b>التاريخ:</b> ${new Date(inv.created_at).toLocaleString('ar-KW')}</div>
+<div><b>التاريخ:</b> ${formatKuwaitTime(inv.created_at)}</div>
 <div><b>العميل:</b> ${inv.customer_name || '-'}</div>
 <div><b>الهاتف:</b> ${inv.customer_phone || '-'}</div>
 <div><b>العنوان:</b> ${inv.customer_address || '-'}</div>
@@ -980,35 +1254,131 @@ function removeProductImage() {
 // Invoices
 async function loadInvoicesTable() {
     try {
-        const response = await fetch(`${API_URL}/api/invoices?limit=200`);
-        const data = await response.json();
-        if (data.success) {
-            allInvoices = data.invoices;
-            const container = document.getElementById('invoicesListContainer');
-            if (allInvoices.length === 0) {
-                container.innerHTML = '<p style="text-align:center; padding:40px;">لا توجد فواتير</p>';
+        let invoices = [];
+        
+        // Online: جلب من السيرفر
+        if (navigator.onLine) {
+            const response = await fetch(`${API_URL}/api/invoices?limit=200`);
+            const data = await response.json();
+            if (data.success) {
+                invoices = data.invoices;
+            }
+        }
+        
+        // Offline أو Fallback: جلب من المحلي
+        if (!navigator.onLine || invoices.length === 0) {
+            if (localDB.isReady) {
+                const localInvoices = await localDB.getAll('local_invoices');
+                if (localInvoices.length > 0) {
+                    invoices = localInvoices.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+                    console.log('[App] Loaded invoices from local cache');
+                }
+            }
+        }
+        
+        allInvoices = invoices;
+        const container = document.getElementById('invoicesListContainer');
+        
+        if (invoices.length === 0) {
+            container.innerHTML = '<p style="text-align:center; padding:40px;">لا توجد فواتير</p>';
+            return;
+        }
+        
+        // إضافة badge للفواتير offline
+        container.innerHTML = `
+            <table class="data-table">
+                <thead><tr><th>رقم الفاتورة</th><th>العميل</th><th>الموظف</th><th>الإجمالي</th><th>التاريخ</th><th>عرض</th></tr></thead>
+                <tbody>
+                    ${invoices.map(inv => {
+                        const isOffline = inv.id && inv.id.toString().startsWith('offline_');
+                        return `
+                        <tr>
+                            <td>
+                                <strong>${inv.invoice_number}</strong>
+                                ${isOffline ? ' <span style="background:#dc3545; color:white; padding:2px 6px; border-radius:4px; font-size:10px;">📴 معلقة</span>' : ''}
+                            </td>
+                            <td>${inv.customer_name || 'عميل'}</td>
+                            <td>${inv.employee_name}</td>
+                            <td style="color:#28a745; font-weight:bold;">${inv.total.toFixed(3)} د.ك</td>
+                            <td>${formatKuwaitTime(inv.created_at)}</td>
+                            <td><button onclick="viewLocalInvoice('${inv.id}')" class="btn-sm">👁️</button></td>
+                        </tr>
+                    `;
+                    }).join('')}
+                </tbody>
+            </table>
+        `;
+    } catch (error) {
+        console.error('خطأ:', error);
+        
+        // Fallback للمحلي
+        if (localDB.isReady) {
+            const localInvoices = await localDB.getAll('local_invoices');
+            if (localInvoices.length > 0) {
+                allInvoices = localInvoices.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+                const container = document.getElementById('invoicesListContainer');
+                container.innerHTML = `
+                    <table class="data-table">
+                        <thead><tr><th>رقم الفاتورة</th><th>العميل</th><th>الموظف</th><th>الإجمالي</th><th>التاريخ</th><th>عرض</th></tr></thead>
+                        <tbody>
+                            ${allInvoices.map(inv => `
+                                <tr>
+                                    <td><strong>${inv.invoice_number}</strong> <span style="background:#dc3545; color:white; padding:2px 6px; border-radius:4px; font-size:10px;">📴 معلقة</span></td>
+                                    <td>${inv.customer_name || 'عميل'}</td>
+                                    <td>${inv.employee_name}</td>
+                                    <td style="color:#28a745; font-weight:bold;">${inv.total.toFixed(3)} د.ك</td>
+                                    <td>${formatKuwaitTime(inv.created_at)}</td>
+                                    <td><button onclick="viewLocalInvoice('${inv.id}')" class="btn-sm">👁️</button></td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+            }
+        }
+    }
+}
+
+// عرض فاتورة محلية
+async function viewLocalInvoice(invoiceId) {
+    try {
+        // محاولة من السيرفر أولاً (إذا online ورقم عادي)
+        if (navigator.onLine && !invoiceId.toString().startsWith('offline_')) {
+            const response = await fetch(`${API_URL}/api/invoices/${invoiceId}`);
+            const data = await response.json();
+            if (data.success) {
+                currentInvoice = data.invoice;
+                displayInvoiceView(currentInvoice);
+                document.getElementById('invoiceViewModal').classList.add('active');
                 return;
             }
-            container.innerHTML = `
-                <table class="data-table">
-                    <thead><tr><th>رقم الفاتورة</th><th>العميل</th><th>الموظف</th><th>الإجمالي</th><th>التاريخ</th><th>عرض</th></tr></thead>
-                    <tbody>
-                        ${allInvoices.map(inv => `
-                            <tr>
-                                <td><strong>${inv.invoice_number}</strong></td>
-                                <td>${inv.customer_name || 'عميل'}</td>
-                                <td>${inv.employee_name}</td>
-                                <td style="color:#28a745; font-weight:bold;">${inv.total.toFixed(3)} د.ك</td>
-                                <td>${new Date(inv.created_at).toLocaleString('ar')}</td>
-                                <td><button onclick="viewInvoiceDetails(${inv.id})" class="btn-sm">👁️</button></td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            `;
+        }
+        
+        // من المحلي
+        if (localDB.isReady) {
+            const invoice = await localDB.get('local_invoices', invoiceId);
+            if (invoice) {
+                currentInvoice = invoice;
+                displayInvoiceView(currentInvoice);
+                document.getElementById('invoiceViewModal').classList.add('active');
+            } else {
+                alert('لم يتم العثور على الفاتورة');
+            }
         }
     } catch (error) {
         console.error('خطأ:', error);
+        
+        // Fallback للمحلي
+        if (localDB.isReady) {
+            const invoice = await localDB.get('local_invoices', invoiceId);
+            if (invoice) {
+                currentInvoice = invoice;
+                displayInvoiceView(currentInvoice);
+                document.getElementById('invoiceViewModal').classList.add('active');
+            } else {
+                alert('لم يتم العثور على الفاتورة');
+            }
+        }
     }
 }
 
@@ -1028,7 +1398,7 @@ async function exportInvoicesExcel() {
         'الإجمالي': inv.total,
         'طريقة الدفع': inv.payment_method,
         'رقم العملية': inv.transaction_number || '',
-        'التاريخ': new Date(inv.created_at).toLocaleString('ar')
+        'التاريخ': formatKuwaitTime(inv.created_at)
     }));
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
@@ -1355,10 +1725,26 @@ async function loadSettings() {
             document.getElementById('storeName').value = data.settings.store_name || '';
             document.getElementById('storePhone').value = data.settings.store_phone || '';
             document.getElementById('storeAddress').value = data.settings.store_address || '';
+            
+            // العملة
+            if (document.getElementById('storeCurrency')) {
+                document.getElementById('storeCurrency').value = data.settings.store_currency || 'KWD';
+            }
+            
+            // شعار المتجر
             if (data.settings.store_logo) {
                 storeLogo = data.settings.store_logo;
                 document.getElementById('logoPreviewImg').src = storeLogo;
                 document.getElementById('logoPreview').style.display = 'block';
+            }
+            
+            // أيقونة Login
+            if (data.settings.login_icon) {
+                document.querySelector('.login-logo').innerHTML = `<img src="${data.settings.login_icon}" style="width: 100px; height: 100px; border-radius: 50%; object-fit: cover;">`;
+                if (document.getElementById('loginIconPreviewImg')) {
+                    document.getElementById('loginIconPreviewImg').src = data.settings.login_icon;
+                    document.getElementById('loginIconPreview').style.display = 'block';
+                }
             }
         }
     } catch (error) {
@@ -1383,6 +1769,26 @@ function removeLogo() {
     storeLogo = null;
 }
 
+function previewLoginIcon(input) {
+    if (input.files && input.files[0]) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            document.getElementById('loginIconPreviewImg').src = e.target.result;
+            document.getElementById('loginIconPreview').style.display = 'block';
+            // تحديث الأيقونة في شاشة Login مباشرة
+            document.querySelector('.login-logo').innerHTML = `<img src="${e.target.result}" style="width: 100px; height: 100px; border-radius: 50%; object-fit: cover;">`;
+        };
+        reader.readAsDataURL(input.files[0]);
+    }
+}
+
+function removeLoginIcon() {
+    document.getElementById('loginIcon').value = '';
+    document.getElementById('loginIconPreview').style.display = 'none';
+    // استعادة الأيقونة الافتراضية
+    document.querySelector('.login-logo').textContent = '🛍️';
+}
+
 async function saveSettings() {
     const logoInput = document.getElementById('storeLogo');
     let logoData = storeLogo;
@@ -1393,12 +1799,27 @@ async function saveSettings() {
             reader.readAsDataURL(logoInput.files[0]);
         });
     }
+    
+    // أيقونة Login
+    const loginIconInput = document.getElementById('loginIcon');
+    let loginIconData = null;
+    if (loginIconInput && loginIconInput.files && loginIconInput.files[0]) {
+        loginIconData = await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.readAsDataURL(loginIconInput.files[0]);
+        });
+    }
+    
     const settings = {
         store_name: document.getElementById('storeName').value,
         store_phone: document.getElementById('storePhone').value,
         store_address: document.getElementById('storeAddress').value,
-        store_logo: logoData || ''
+        store_currency: document.getElementById('storeCurrency')?.value || 'KWD',
+        store_logo: logoData || '',
+        login_icon: loginIconData
     };
+    
     try {
         const response = await fetch(`${API_URL}/api/settings`, {
             method: 'PUT',
@@ -3594,3 +4015,290 @@ notifStyle.textContent = `
 document.head.appendChild(notifStyle);
 
 console.log('✅ Notification helpers جاهزة');
+
+// ===== استعادة المستخدم عند تحميل الصفحة =====
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('[App] DOMContentLoaded - checking for saved user...');
+    
+    if (restoreUser()) {
+        console.log('[App] User found in localStorage, restoring session...');
+        initializeUI();
+    } else {
+        console.log('[App] No saved user, showing login screen');
+    }
+});
+
+// ===== منع التحديث العرضي =====
+// تحذير المستخدم إذا فيه فواتير معلقة أو سلة
+window.addEventListener('beforeunload', (e) => {
+    // لا نمنع التحديث، فقط نحذر إذا فيه بيانات مهمة
+    if (cart.length > 0) {
+        e.preventDefault();
+        e.returnValue = 'لديك منتجات في السلة. هل تريد المتابعة؟';
+        return e.returnValue;
+    }
+});
+
+console.log('[App] Page refresh protection enabled ✅');
+
+// ========================================
+// 📈 DCF Valuation (التدفقات النقدية المخصومة)
+// ========================================
+
+let dcfChart = null; // لحفظ مرجع الرسم البياني
+
+function calculateDCF() {
+    // قراءة المدخلات
+    const initialCF = parseFloat(document.getElementById('dcf_initial_cf').value) || 0;
+    const growthRate = parseFloat(document.getElementById('dcf_growth_rate').value) / 100 || 0;
+    const discountRate = parseFloat(document.getElementById('dcf_discount_rate').value) / 100 || 0;
+    const years = parseInt(document.getElementById('dcf_years').value) || 5;
+    const terminalGrowth = parseFloat(document.getElementById('dcf_terminal_growth').value) / 100 || 0;
+    
+    // التحقق
+    if (initialCF <= 0) {
+        alert('الرجاء إدخال تدفق نقدي موجب');
+        return;
+    }
+    
+    if (discountRate <= terminalGrowth) {
+        alert('⚠️ معدل الخصم يجب أن يكون أكبر من معدل النمو الدائم');
+        return;
+    }
+    
+    // حساب التدفقات السنوية
+    const cashFlows = [];
+    let totalPVCashFlows = 0;
+    
+    for (let year = 1; year <= years; year++) {
+        const cf = initialCF * Math.pow(1 + growthRate, year);
+        const pv = cf / Math.pow(1 + discountRate, year);
+        totalPVCashFlows += pv;
+        
+        cashFlows.push({
+            year: year,
+            cashFlow: cf,
+            presentValue: pv,
+            discountFactor: 1 / Math.pow(1 + discountRate, year)
+        });
+    }
+    
+    // حساب القيمة المتبقية (Terminal Value)
+    const lastCF = initialCF * Math.pow(1 + growthRate, years);
+    const terminalCF = lastCF * (1 + terminalGrowth);
+    const terminalValue = terminalCF / (discountRate - terminalGrowth);
+    const pvTerminalValue = terminalValue / Math.pow(1 + discountRate, years);
+    
+    // القيمة الإجمالية
+    const totalValue = totalPVCashFlows + pvTerminalValue;
+    
+    // عرض النتائج
+    displayDCFResults(totalValue, totalPVCashFlows, pvTerminalValue, cashFlows, terminalValue);
+}
+
+function displayDCFResults(totalValue, pvCashFlows, pvTerminalValue, cashFlows, terminalValue) {
+    // إظهار قسم النتائج
+    document.getElementById('dcfResults').style.display = 'block';
+    
+    // الحصول على العملة
+    const currency = document.getElementById('storeCurrency')?.value || 'KWD';
+    const currencySymbol = getCurrencySymbol(currency);
+    
+    // القيمة الإجمالية
+    document.getElementById('dcfTotalValue').textContent = `${totalValue.toLocaleString('ar', {minimumFractionDigits: 2, maximumFractionDigits: 2})} ${currencySymbol}`;
+    
+    // التدفقات المخصومة
+    document.getElementById('dcfPVCashFlows').textContent = `${pvCashFlows.toLocaleString('ar', {minimumFractionDigits: 2, maximumFractionDigits: 2})} ${currencySymbol}`;
+    
+    // القيمة المتبقية
+    document.getElementById('dcfTerminalValue').textContent = `${pvTerminalValue.toLocaleString('ar', {minimumFractionDigits: 2, maximumFractionDigits: 2})} ${currencySymbol}`;
+    
+    // جدول التفاصيل
+    let tableHTML = `
+        <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+                <tr style="background: #667eea; color: white;">
+                    <th style="padding: 12px; text-align: center; border: 1px solid #ddd;">السنة</th>
+                    <th style="padding: 12px; text-align: center; border: 1px solid #ddd;">التدفق النقدي</th>
+                    <th style="padding: 12px; text-align: center; border: 1px solid #ddd;">معامل الخصم</th>
+                    <th style="padding: 12px; text-align: center; border: 1px solid #ddd;">القيمة الحالية</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+    
+    cashFlows.forEach(cf => {
+        tableHTML += `
+            <tr style="border-bottom: 1px solid #ddd;">
+                <td style="padding: 10px; text-align: center;">${cf.year}</td>
+                <td style="padding: 10px; text-align: center;">${cf.cashFlow.toLocaleString('ar', {minimumFractionDigits: 2})}</td>
+                <td style="padding: 10px; text-align: center;">${cf.discountFactor.toFixed(4)}</td>
+                <td style="padding: 10px; text-align: center; font-weight: bold; color: #667eea;">${cf.presentValue.toLocaleString('ar', {minimumFractionDigits: 2})}</td>
+            </tr>
+        `;
+    });
+    
+    // إضافة القيمة المتبقية
+    const years = cashFlows.length;
+    tableHTML += `
+        <tr style="background: #f7fafc; font-weight: bold;">
+            <td style="padding: 10px; text-align: center;">${years}+</td>
+            <td style="padding: 10px; text-align: center;">${terminalValue.toLocaleString('ar', {minimumFractionDigits: 2})}</td>
+            <td style="padding: 10px; text-align: center;">${(1 / Math.pow(1 + parseFloat(document.getElementById('dcf_discount_rate').value) / 100, years)).toFixed(4)}</td>
+            <td style="padding: 10px; text-align: center; font-weight: bold; color: #764ba2;">${pvTerminalValue.toLocaleString('ar', {minimumFractionDigits: 2})}</td>
+        </tr>
+        <tr style="background: #667eea; color: white; font-weight: bold; font-size: 16px;">
+            <td colspan="3" style="padding: 12px; text-align: center;">الإجمالي</td>
+            <td style="padding: 12px; text-align: center;">${totalValue.toLocaleString('ar', {minimumFractionDigits: 2})}</td>
+        </tr>
+    `;
+    
+    tableHTML += '</tbody></table>';
+    document.getElementById('dcfTable').innerHTML = tableHTML;
+    
+    // الرسم البياني
+    drawDCFChart(cashFlows, pvTerminalValue);
+}
+
+function drawDCFChart(cashFlows, terminalValue) {
+    const ctx = document.getElementById('dcfChart').getContext('2d');
+    
+    // حذف الرسم القديم
+    if (dcfChart) {
+        dcfChart.destroy();
+    }
+    
+    const labels = cashFlows.map(cf => `السنة ${cf.year}`);
+    labels.push('القيمة المتبقية');
+    
+    const data = cashFlows.map(cf => cf.presentValue);
+    data.push(terminalValue);
+    
+    dcfChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'القيمة الحالية',
+                data: data,
+                backgroundColor: cashFlows.map((_, i) => i < cashFlows.length ? 'rgba(102, 126, 234, 0.7)' : 'rgba(118, 75, 162, 0.7)'),
+                borderColor: cashFlows.map((_, i) => i < cashFlows.length ? 'rgba(102, 126, 234, 1)' : 'rgba(118, 75, 162, 1)'),
+                borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    display: false
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return 'القيمة: ' + context.parsed.y.toLocaleString('ar', {minimumFractionDigits: 2});
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function(value) {
+                            return value.toLocaleString('ar');
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+function getCurrencySymbol(code) {
+    const currencies = {
+        'KWD': 'د.ك',
+        'USD': '$',
+        'EUR': '€',
+        'GBP': '£',
+        'SAR': 'ر.س',
+        'AED': 'د.إ',
+        'QAR': 'ر.ق',
+        'OMR': 'ر.ع',
+        'BHD': 'د.ب',
+        'EGP': 'ج.م',
+        'JOD': 'د.أ',
+        'IQD': 'د.ع',
+        'LBP': 'ل.ل',
+        'TRY': '₺'
+    };
+    return currencies[code] || code;
+}
+
+console.log('[DCF] Module loaded ✅');
+
+// ========================================
+// ⏰ عرض الوقت والتاريخ الحالي
+// ========================================
+
+function updateDateTime() {
+    const now = new Date();
+    const dateTimeElement = document.getElementById('datetime');
+    if (dateTimeElement) {
+        const options = {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: true
+        };
+        const formatted = now.toLocaleDateString('ar-SA', options);
+        dateTimeElement.textContent = formatted;
+    }
+}
+
+// تحديث الوقت كل ثانية
+setInterval(updateDateTime, 1000);
+
+// تحديث أولي
+updateDateTime();
+
+console.log('[DateTime] Clock started ✅');
+
+// ========================================
+// ⏰ تحويل الوقت لتوقيت الكويت (UTC+3)
+// ========================================
+
+function formatKuwaitTime(dateString) {
+    if (!dateString) return '-';
+    
+    try {
+        // إنشاء التاريخ من النص
+        const date = new Date(dateString);
+        
+        // السيرفر يحفظ بـ UTC، نحتاج نضيف 3 ساعات (الكويت = UTC+3)
+        const kuwaitOffset = 3 * 60 * 60 * 1000; // 3 ساعات بالميلي ثانية
+        const kuwaitTime = new Date(date.getTime() + kuwaitOffset);
+        
+        // تنسيق عربي
+        const options = {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: true
+        };
+        
+        return kuwaitTime.toLocaleString('ar-SA', options);
+    } catch (e) {
+        console.error('Error formatting date:', e);
+        return new Date(dateString).toLocaleString('ar');
+    }
+}
+
+console.log('[Timezone] Kuwait time formatter loaded ✅');
