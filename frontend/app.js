@@ -465,9 +465,18 @@ function displayProducts(products) {
             // العداد إذا موجود في السلة
             counterHTML = `
                 <div class="product-counter">
-                    <button class="counter-btn" onclick="event.stopPropagation(); updateQuantity(${p.id}, -1)">-</button>
+                    <button class="counter-btn" onclick="event.stopPropagation(); updateQuantity(${p.id}, -1)" title="تقليل">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round">
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                    </button>
                     <span class="counter-value">${inCart}</span>
-                    <button class="counter-btn" onclick="event.stopPropagation(); updateQuantity(${p.id}, 1)">+</button>
+                    <button class="counter-btn" onclick="event.stopPropagation(); updateQuantity(${p.id}, 1)" title="زيادة">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                    </button>
                 </div>
             `;
         } else {
