@@ -1047,6 +1047,20 @@ async function loadProductsTable() {
                                         <div style="color:#667eea; font-size:18px; font-weight:bold; margin:8px 0;">${p.price.toFixed(3)} د.ك</div>
                                         <div style="color:#6c757d; font-size:13px; margin-bottom:10px;">المخزون: ${p.stock}</div>
                                         ${p.barcode ? `<div style="color:#6c757d; font-size:11px; margin-bottom:10px;">📊 ${p.barcode}</div>` : ''}
+                                        
+                                        <!-- عرض إجمالي التكلفة فقط -->
+                                        ${p.cost && p.cost > 0 ? `
+                                            <div style="background:#f0f9ff; padding:10px; border-radius:6px; margin:10px 0; border:1px solid #bae6fd;">
+                                                <div style="display:flex; justify-content:space-between; align-items:center; font-size:13px;">
+                                                    <span style="color:#0369a1; font-weight:600;">💰 التكلفة:</span>
+                                                    <span style="color:#0c4a6e; font-weight:700;">${p.cost.toFixed(3)} د.ك</span>
+                                                </div>
+                                                <div style="margin-top:5px; font-size:11px; color:#0284c7;">
+                                                    📊 الربح: ${(p.price - p.cost).toFixed(3)} د.ك (${((p.price - p.cost) / p.price * 100).toFixed(1)}%)
+                                                </div>
+                                            </div>
+                                        ` : ''}
+                                        
                                         <div style="display:flex; gap:5px; justify-content:center; margin-top:10px;">
                                             <button onclick="editProduct(${p.id})" class="btn-sm" style="flex:1;">✏️ تعديل</button>
                                             <button onclick="deleteProduct(${p.id})" class="btn-sm btn-danger" style="flex:1;">🗑️</button>
@@ -1120,7 +1134,6 @@ document.getElementById('productForm').addEventListener('submit', async (e) => {
         name: document.getElementById('productName').value,
         barcode: document.getElementById('productBarcode').value,
         price: parseFloat(document.getElementById('productPrice').value),
-        cost: parseFloat(document.getElementById('productCost').value) || 0,
         stock: parseInt(document.getElementById('productStock').value) || 0,
         category: category,
         image_data: document.getElementById('productImageData').value,
@@ -1756,6 +1769,7 @@ async function loadSettings() {
                 }
             }
         }
+        
     } catch (error) {
         console.error('خطأ:', error);
     }
@@ -2282,6 +2296,10 @@ function showAddInventory() {
     document.getElementById('inventoryId').value = '';
     document.getElementById('inventoryImageData').value = '';
     document.getElementById('inventoryImagePreview').style.display = 'none';
+    
+    // تهيئة نظام التكاليف
+    initializeInventoryCosts();
+    
     document.getElementById('addInventoryModal').classList.add('active');
 }
 
@@ -2302,6 +2320,7 @@ document.getElementById('inventoryForm').addEventListener('submit', async (e) =>
         category: category,
         price: parseFloat(document.getElementById('inventoryPrice').value),
         cost: parseFloat(document.getElementById('inventoryCost').value) || 0,
+        costs: JSON.stringify(getInventoryCostsData()),
         image_data: document.getElementById('inventoryImageData').value
     };
     
@@ -2401,6 +2420,17 @@ async function editInventory(id) {
     document.getElementById('inventoryCost').value = item.cost || 0;
     document.getElementById('inventoryCategory').value = item.category || '';
     document.getElementById('inventoryImageData').value = item.image_data || '';
+    
+    // تحميل التكاليف التفصيلية
+    let costs = [];
+    if (item.costs) {
+        try {
+            costs = JSON.parse(item.costs);
+        } catch (e) {
+            console.error('Error parsing costs:', e);
+        }
+    }
+    loadInventoryCosts(costs);
     
     if (item.image_data && item.image_data.startsWith('data:image')) {
         document.getElementById('inventoryImageDisplay').innerHTML = `<img src="${item.image_data}" style="max-width:80px; max-height:80px; border-radius:8px;">`;
@@ -4311,3 +4341,305 @@ function formatKuwaitTime(dateString) {
 }
 
 console.log('[Timezone] Kuwait time formatter loaded ✅');
+
+// ========================================
+// 💰 نظام التكاليف الديناميكي المرن
+// ========================================
+
+let costRowCounter = 0;
+
+// إضافة صف تكلفة جديد
+function addCostRow(name = '', value = 0) {
+    costRowCounter++;
+    const container = document.getElementById('costsContainer');
+    
+    const rowDiv = document.createElement('div');
+    rowDiv.className = 'cost-row';
+    rowDiv.id = `costRow${costRowCounter}`;
+    rowDiv.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; margin-bottom: 10px; padding: 12px; background: white; border-radius: 8px; border: 1px solid #e2e8f0;';
+    
+    rowDiv.innerHTML = `
+        <div class="form-group" style="margin: 0;">
+            <input type="text" 
+                   class="cost-name" 
+                   placeholder="اسم التكلفة (مثال: الباكج)"
+                   value="${name}"
+                   style="padding: 10px; border: 2px solid #cbd5e0; border-radius: 6px; width: 100%; font-size: 14px;">
+        </div>
+        <div class="form-group" style="margin: 0;">
+            <input type="number" 
+                   class="cost-value" 
+                   placeholder="0.000"
+                   value="${value}"
+                   step="0.001"
+                   oninput="calculateTotalCost()"
+                   style="padding: 10px; border: 2px solid #cbd5e0; border-radius: 6px; width: 100%; font-size: 14px;">
+        </div>
+        <button type="button" 
+                onclick="removeCostRow('costRow${costRowCounter}')" 
+                class="btn-sm btn-danger"
+                title="حذف"
+                style="padding: 10px 15px; height: 42px;">
+            🗑️
+        </button>
+    `;
+    
+    container.appendChild(rowDiv);
+    calculateTotalCost();
+    
+    return rowDiv;
+}
+
+// حذف صف تكلفة
+function removeCostRow(rowId) {
+    const row = document.getElementById(rowId);
+    if (row) {
+        row.remove();
+        calculateTotalCost();
+    }
+}
+
+// حساب إجمالي التكلفة
+function calculateTotalCost() {
+    const costInputs = document.querySelectorAll('.cost-value');
+    let total = 0;
+    
+    costInputs.forEach(input => {
+        const value = parseFloat(input.value) || 0;
+        total += value;
+    });
+    
+    // تحديث العرض
+    const display = document.getElementById('totalCostDisplay');
+    if (display) {
+        display.textContent = `${total.toFixed(3)} د.ك`;
+    }
+    
+    // تحديث الحقل المخفي
+    const costField = document.getElementById('productCost');
+    if (costField) {
+        costField.value = total.toFixed(3);
+    }
+    
+    return total;
+}
+
+// جمع بيانات التكاليف
+function getCostsData() {
+    const costRows = document.querySelectorAll('.cost-row');
+    const costs = [];
+    
+    costRows.forEach(row => {
+        const nameInput = row.querySelector('.cost-name');
+        const valueInput = row.querySelector('.cost-value');
+        
+        const name = nameInput?.value?.trim() || '';
+        const value = parseFloat(valueInput?.value) || 0;
+        
+        if (name && value > 0) {
+            costs.push({ name, value });
+        }
+    });
+    
+    return costs;
+}
+
+// تحميل بيانات التكاليف
+function loadCostsData(costs) {
+    // مسح الصفوف القديمة
+    const container = document.getElementById('costsContainer');
+    if (container) {
+        container.innerHTML = '';
+        costRowCounter = 0;
+    }
+    
+    // إضافة التكاليف
+    if (costs && Array.isArray(costs) && costs.length > 0) {
+        costs.forEach(cost => {
+            addCostRow(cost.name, cost.value);
+        });
+    } else {
+        // إضافة صف واحد فارغ كبداية
+        addCostRow('', 0);
+    }
+    
+    calculateTotalCost();
+}
+
+// تهيئة نظام التكاليف
+function initializeCostSystem() {
+    const container = document.getElementById('costsContainer');
+    if (container && container.children.length === 0) {
+        // إضافة صف واحد افتراضي
+        addCostRow('', 0);
+    }
+    calculateTotalCost();
+}
+
+console.log('[Costs] Dynamic flexible cost system loaded ✅');
+
+// ========================================
+// 📋 نظام التكاليف في المخزون (مدمج)
+// ========================================
+
+let inventoryCostCounter = 0;
+
+// إضافة صف تكلفة في نموذج المخزون
+function addInventoryCostRow(name = '', value = 0) {
+    inventoryCostCounter++;
+    const container = document.getElementById('inventoryCostsContainer');
+    if (!container) return;
+    
+    const rowDiv = document.createElement('div');
+    rowDiv.className = 'inventory-cost-row';
+    rowDiv.id = `inventoryCostRow${inventoryCostCounter}`;
+    rowDiv.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; margin-bottom: 10px; padding: 12px; background: white; border-radius: 8px; border: 1px solid #e2e8f0;';
+    
+    rowDiv.innerHTML = `
+        <div class="form-group" style="margin: 0;">
+            <input type="text" 
+                   class="inventory-cost-name" 
+                   placeholder="اسم التكلفة (مثال: الباكج)"
+                   value="${name}"
+                   style="padding: 10px; border: 2px solid #cbd5e0; border-radius: 6px; width: 100%; font-size: 14px;">
+        </div>
+        <div class="form-group" style="margin: 0;">
+            <input type="number" 
+                   class="inventory-cost-value" 
+                   placeholder="0.000"
+                   value="${value}"
+                   step="0.001"
+                   oninput="calculateInventoryTotalCost()"
+                   style="padding: 10px; border: 2px solid #cbd5e0; border-radius: 6px; width: 100%; font-size: 14px;">
+        </div>
+        <button type="button" 
+                onclick="removeInventoryCostRow('inventoryCostRow${inventoryCostCounter}')" 
+                class="btn-sm btn-danger"
+                title="حذف"
+                style="padding: 10px 15px; height: 42px;">
+            🗑️
+        </button>
+    `;
+    
+    container.appendChild(rowDiv);
+    calculateInventoryTotalCost();
+    
+    return rowDiv;
+}
+
+// حذف صف تكلفة
+function removeInventoryCostRow(rowId) {
+    const row = document.getElementById(rowId);
+    if (row) {
+        row.remove();
+        calculateInventoryTotalCost();
+    }
+}
+
+// حساب إجمالي التكلفة
+function calculateInventoryTotalCost() {
+    const costInputs = document.querySelectorAll('.inventory-cost-value');
+    let total = 0;
+    
+    costInputs.forEach(input => {
+        const value = parseFloat(input.value) || 0;
+        total += value;
+    });
+    
+    const display = document.getElementById('inventoryTotalCostDisplay');
+    if (display) {
+        display.textContent = `${total.toFixed(3)} د.ك`;
+    }
+    
+    // تحديث حقل التكلفة المخفي
+    const costField = document.getElementById('inventoryCost');
+    if (costField) {
+        costField.value = total.toFixed(3);
+    }
+    
+    // حساب هامش الربح (تمرير القيمة بدلاً من الاستدعاء)
+    const priceInput = document.getElementById('inventoryPrice');
+    const price = parseFloat(priceInput?.value) || 0;
+    updateInventoryProfitDisplay(price, total);
+    
+    return total;
+}
+
+// تحديث عرض هامش الربح
+function updateInventoryProfitDisplay(price, cost) {
+    const profit = price - cost;
+    const profitPercent = price > 0 ? ((profit / price) * 100).toFixed(1) : 0;
+    
+    const display = document.getElementById('inventoryProfitDisplay');
+    if (display) {
+        const color = profit > 0 ? '#38a169' : '#f56565';
+        display.style.color = color;
+        display.innerHTML = `${profit.toFixed(3)} د.ك (<span style="font-size: 16px;">${profitPercent}%</span>)`;
+    }
+}
+
+// حساب هامش الربح (عند تغيير السعر)
+function calculateInventoryProfit() {
+    const costInputs = document.querySelectorAll('.inventory-cost-value');
+    let totalCost = 0;
+    
+    costInputs.forEach(input => {
+        const value = parseFloat(input.value) || 0;
+        totalCost += value;
+    });
+    
+    const priceInput = document.getElementById('inventoryPrice');
+    const price = parseFloat(priceInput?.value) || 0;
+    
+    updateInventoryProfitDisplay(price, totalCost);
+}
+
+// جمع بيانات التكاليف
+function getInventoryCostsData() {
+    const costRows = document.querySelectorAll('.inventory-cost-row');
+    const costs = [];
+    
+    costRows.forEach(row => {
+        const nameInput = row.querySelector('.inventory-cost-name');
+        const valueInput = row.querySelector('.inventory-cost-value');
+        
+        const name = nameInput?.value?.trim() || '';
+        const value = parseFloat(valueInput?.value) || 0;
+        
+        if (name && value > 0) {
+            costs.push({ name, value });
+        }
+    });
+    
+    return costs;
+}
+
+// تحميل بيانات التكاليف
+function loadInventoryCosts(costs) {
+    const container = document.getElementById('inventoryCostsContainer');
+    if (container) {
+        container.innerHTML = '';
+        inventoryCostCounter = 0;
+    }
+    
+    if (costs && Array.isArray(costs) && costs.length > 0) {
+        costs.forEach(cost => {
+            addInventoryCostRow(cost.name, cost.value);
+        });
+    } else {
+        addInventoryCostRow('', 0);
+    }
+    
+    calculateInventoryTotalCost();
+}
+
+// تهيئة نظام التكاليف في المخزون
+function initializeInventoryCosts() {
+    const container = document.getElementById('inventoryCostsContainer');
+    if (container && container.children.length === 0) {
+        addInventoryCostRow('', 0);
+    }
+    calculateInventoryTotalCost();
+}
+
+console.log('[Inventory Costs] System loaded ✅');

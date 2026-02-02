@@ -535,8 +535,38 @@
                     <input type="hidden" id="inventoryId">
                     <div class="form-group"><label>اسم المنتج:</label><input type="text" id="inventoryName" required></div>
                     <div class="form-group"><label>الباركود:</label><input type="text" id="inventoryBarcode"></div>
-                    <div class="form-group"><label>السعر (د.ك):</label><input type="number" id="inventoryPrice" step="0.001" required></div>
-                    <div class="form-group"><label>التكلفة (د.ك):</label><input type="number" id="inventoryCost" step="0.001"></div>
+                    <div class="form-group"><label>السعر (د.ك):</label><input type="number" id="inventoryPrice" step="0.001" required oninput="calculateInventoryProfit()"></div>
+                    
+                    <!-- نظام التكاليف التفصيلي -->
+                    <div style="background: #f8f9fa; padding: 20px; border-radius: 12px; margin: 15px 0; border: 2px solid #667eea;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                            <h4 style="color: #667eea; margin: 0;">💰 التكاليف التفصيلية</h4>
+                            <button type="button" onclick="addInventoryCostRow()" class="btn" style="background: #38a169; padding: 8px 16px; font-size: 14px;">
+                                ➕ إضافة تكلفة
+                            </button>
+                        </div>
+                        
+                        <div id="inventoryCostsContainer">
+                            <!-- التكاليف تضاف هنا -->
+                        </div>
+                        
+                        <div style="background: white; padding: 15px; border-radius: 8px; margin-top: 15px; border: 2px solid #667eea;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-weight: bold; color: #2d3748; font-size: 16px;">💵 إجمالي التكلفة:</span>
+                                <span id="inventoryTotalCostDisplay" style="font-size: 24px; font-weight: bold; color: #667eea;">0.000 د.ك</span>
+                            </div>
+                        </div>
+                        
+                        <div style="background: #fff3cd; padding: 12px; border-radius: 8px; margin-top: 15px; border-right: 4px solid #ffc107;">
+                            <strong>📊 هامش الربح:</strong>
+                            <div style="margin-top: 5px; font-size: 18px; font-weight: bold; color: #2d3748;" id="inventoryProfitDisplay">
+                                --
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group" style="display: none;"><label>التكلفة (د.ك):</label><input type="number" id="inventoryCost" step="0.001" readonly></div>
+                    
                     <div class="form-group">
                         <label>الفئة:</label>
                         <select id="inventoryCategory">
@@ -637,7 +667,6 @@
                     <div class="form-group"><label>اسم المنتج:</label><input type="text" id="productName" required></div>
                     <div class="form-group"><label>الباركود:</label><input type="text" id="productBarcode"></div>
                     <div class="form-group"><label>السعر (د.ك):</label><input type="number" id="productPrice" step="0.001" required></div>
-                    <div class="form-group"><label>التكلفة (د.ك):</label><input type="number" id="productCost" step="0.001"></div>
                     <div class="form-group"><label>المخزون:</label><input type="number" id="productStock" value="0"></div>
                     <div class="form-group">
                         <label>الفئة:</label>
