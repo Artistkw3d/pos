@@ -41,6 +41,7 @@
                 <button class="header-btn" onclick="showTab('products')" data-tab="products">📦 المنتجات</button>
                 <button class="header-btn" onclick="showTab('inventory')" data-tab="inventory">📋 المخزون</button>
                 <button class="header-btn" onclick="showTab('invoices')" data-tab="invoices">🧾 الفواتير</button>
+                <button class="header-btn" onclick="showTab('returns')" data-tab="returns">🔄 المرتجعات</button>
                 <button class="header-btn" onclick="showTab('customers')" data-tab="customers">👥 العملاء</button>
                 <button class="header-btn" onclick="showTab('reports')" data-tab="reports">📊 التقارير</button>
                 <button class="header-btn" onclick="showTab('expenses')" data-tab="expenses" id="expensesBtn" style="display: none;">💰 التكاليف</button>
@@ -87,8 +88,27 @@
                     <div class="customer-section">
                         <h3>👤 معلومات العميل</h3>
                         <input type="text" id="customerName" placeholder="الاسم">
-                        <input type="tel" id="customerPhone" placeholder="الهاتف">
+                        <input type="tel" id="customerPhone" placeholder="الهاتف" onblur="searchCustomerByPhone()">
                         <input type="text" id="customerAddress" placeholder="العنوان">
+                        
+                        <!-- نقاط الولاء -->
+                        <div id="loyaltySection" style="display: none; background: #f0f9ff; padding: 12px; border-radius: 8px; margin-top: 10px; border: 2px solid #0ea5e9;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <span style="font-weight: bold; color: #0369a1;">💎 نقاط الولاء</span>
+                                <span style="font-size: 18px; font-weight: bold; color: #0c4a6e;" id="customerLoyaltyPoints">0</span>
+                            </div>
+                            <div style="font-size: 11px; color: #64748b; margin-bottom: 8px;">
+                                💰 سيربح: <span id="pointsToEarn" style="font-weight: bold; color: #38a169;">0</span> نقطة
+                            </div>
+                            <div style="display: flex; gap: 5px; align-items: center;">
+                                <input type="number" id="pointsToRedeem" placeholder="استخدم نقاط" min="0" step="100" style="flex: 1; padding: 6px; font-size: 12px;" oninput="calculateLoyaltyDiscount()">
+                                <button onclick="applyMaxPoints()" class="btn-sm" style="background: #f59e0b; padding: 6px 10px; font-size: 11px;">استخدم الكل</button>
+                            </div>
+                            <div style="font-size: 10px; color: #94a3b8; margin-top: 5px;">
+                                💡 100 نقطة = 1 د.ك خصم
+                            </div>
+                        </div>
+                        <input type="hidden" id="selectedCustomerId">
                     </div>
 
                     <!-- الدفع -->
@@ -115,6 +135,10 @@
                                     <option value="percent">%</option>
                                 </select>
                             </div>
+                        </div>
+                        <div class="summary-row" id="loyaltyDiscountRow" style="display: none;">
+                            <span>💎 خصم الولاء:</span>
+                            <span id="loyaltyDiscountAmount" style="color: #38a169; font-weight: bold;">0.000 د.ك</span>
                         </div>
                         <div class="summary-row"><span>رسوم التوصيل:</span><input type="number" id="deliveryFee" value="0" min="0" step="0.001" style="width: 100px;" onchange="updateTotals()"></div>
                         <div class="summary-row total"><span>الإجمالي:</span><span id="total">0.000 د.ك</span></div>
@@ -187,6 +211,27 @@
                     </div>
                 </div>
                 <div id="invoicesListContainer"></div>
+            </div>
+        </div>
+
+        <!-- Returns Tab -->
+        <div class="tab-content" id="returnsTab" style="display: none;">
+            <div style="padding: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2>🔄 المرتجعات</h2>
+                    <button onclick="showAddReturn()" class="add-btn">➕ إضافة مرتجع</button>
+                </div>
+                
+                <div style="background: white; padding: 15px; border-radius: 12px; margin-bottom: 20px;">
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                        <button onclick="filterReturns('all')" class="btn">الكل</button>
+                        <button onclick="filterReturns('pending')" class="btn" style="background: #f59e0b;">⏳ قيد الانتظار</button>
+                        <button onclick="filterReturns('approved')" class="btn" style="background: #38a169;">✅ معتمد</button>
+                        <button onclick="filterReturns('rejected')" class="btn" style="background: #ef4444;">❌ مرفوض</button>
+                    </div>
+                </div>
+                
+                <div id="returnsTableContainer"></div>
             </div>
         </div>
 
@@ -941,23 +986,83 @@
             <div class="modal-body">
                 <form id="customerForm">
                     <input type="hidden" id="customerId">
+                    
                     <div class="form-group">
                         <label>الاسم:</label>
                         <input type="text" id="customerNameField" required>
                     </div>
+                    
                     <div class="form-group">
                         <label>رقم الهاتف:</label>
-                        <input type="tel" id="customerPhoneField">
+                        <input type="tel" id="customerPhoneField" required>
                     </div>
+                    
+                    <div class="form-group">
+                        <label>البريد الإلكتروني:</label>
+                        <input type="email" id="customerEmailField">
+                    </div>
+                    
                     <div class="form-group">
                         <label>العنوان:</label>
                         <textarea id="customerAddressField" rows="3"></textarea>
                     </div>
+                    
                     <div class="form-group">
                         <label>ملاحظات:</label>
                         <textarea id="customerNotes" rows="3"></textarea>
                     </div>
+                    
+                    <!-- نقاط الولاء (عند التعديل فقط) -->
+                    <div id="loyaltyPointsSection" style="display: none;">
+                        <div style="background: #f0f9ff; padding: 15px; border-radius: 8px; margin: 15px 0; border: 2px solid #0ea5e9;">
+                            <h4 style="color: #0369a1; margin: 0 0 10px 0;">💎 نقاط الولاء</h4>
+                            <div style="font-size: 24px; font-weight: bold; color: #0c4a6e; margin-bottom: 10px;">
+                                <span id="customerCurrentPoints">0</span> نقطة
+                            </div>
+                            <div style="font-size: 12px; color: #64748b;">
+                                💵 إجمالي المشتريات: <span id="customerTotalSpent">0.000</span> د.ك
+                            </div>
+                            <div style="margin-top: 10px;">
+                                <button type="button" onclick="showAdjustPoints()" class="btn" style="background: #38a169; font-size: 13px; padding: 8px 12px;">
+                                    ⚙️ تعديل النقاط
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <button type="submit" class="btn">حفظ</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Adjust Points Modal -->
+    <div class="modal" id="adjustPointsModal">
+        <div class="modal-content" style="max-width: 400px;">
+            <div class="modal-header">
+                <h2>⚙️ تعديل نقاط الولاء</h2>
+                <button class="close-btn" onclick="closeAdjustPoints()">✖️</button>
+            </div>
+            <div class="modal-body">
+                <form id="adjustPointsForm">
+                    <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                        <div style="text-align: center;">
+                            <div style="font-size: 14px; color: #666; margin-bottom: 5px;">النقاط الحالية:</div>
+                            <div style="font-size: 32px; font-weight: bold; color: #0ea5e9;" id="adjustCurrentPoints">0</div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>النقاط (موجب للإضافة، سالب للخصم):</label>
+                        <input type="number" id="pointsAdjustment" required step="1">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>السبب:</label>
+                        <textarea id="adjustReason" rows="3" placeholder="مثال: تعويض عن مشكلة في الطلب السابق"></textarea>
+                    </div>
+                    
+                    <button type="submit" class="btn">حفظ التعديل</button>
                 </form>
             </div>
         </div>

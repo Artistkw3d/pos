@@ -718,15 +718,22 @@ def create_invoice():
         original_invoice_number = data.get('invoice_number', '')
         invoice_number_with_branch = f"{original_invoice_number}-B{branch_id}"
         
+        # بيانات الولاء
+        customer_id = data.get('customer_id')
+        loyalty_points_earned = data.get('loyalty_points_earned', 0)
+        loyalty_points_redeemed = data.get('loyalty_points_redeemed', 0)
+        loyalty_discount = data.get('loyalty_discount', 0)
+        
         # إدراج الفاتورة
         cursor.execute('''
             INSERT INTO invoices 
             (invoice_number, customer_id, customer_name, customer_phone, customer_address,
-             subtotal, discount, total, payment_method, employee_name, notes, transaction_number, branch_name, delivery_fee)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             subtotal, discount, total, payment_method, employee_name, notes, transaction_number, 
+             branch_name, delivery_fee, loyalty_points_earned, loyalty_points_redeemed, loyalty_discount)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             invoice_number_with_branch,
-            data.get('customer_id'),
+            customer_id,
             data.get('customer_name', ''),
             data.get('customer_phone', ''),
             data.get('customer_address', ''),
@@ -738,7 +745,10 @@ def create_invoice():
             data.get('notes', ''),
             data.get('transaction_number', ''),
             branch_name,
-            data.get('delivery_fee', 0)
+            data.get('delivery_fee', 0),
+            loyalty_points_earned,
+            loyalty_points_redeemed,
+            loyalty_discount
         ))
         
         invoice_id = cursor.lastrowid
@@ -769,6 +779,39 @@ def create_invoice():
                     SET stock = stock - ?, updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                 ''', (item.get('quantity'), branch_stock_id))
+        
+        # تحديث نقاط العميل (إذا كان موجوداً)
+        if customer_id:
+            # إضافة النقاط المكتسبة
+            if loyalty_points_earned > 0:
+                cursor.execute('''
+                    UPDATE customers 
+                    SET points = points + ?,
+                        total_spent = total_spent + ?,
+                        last_visit = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (loyalty_points_earned, data.get('total', 0), customer_id))
+                
+                # تسجيل في تاريخ النقاط
+                cursor.execute('''
+                    INSERT INTO loyalty_transactions (customer_id, invoice_id, points, type, description)
+                    VALUES (?, ?, ?, 'earned', 'نقاط من فاتورة')
+                ''', (customer_id, invoice_id, loyalty_points_earned))
+            
+            # خصم النقاط المستخدمة
+            if loyalty_points_redeemed > 0:
+                cursor.execute('''
+                    UPDATE customers 
+                    SET points = points - ?,
+                        last_visit = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (loyalty_points_redeemed, customer_id))
+                
+                # تسجيل في تاريخ النقاط
+                cursor.execute('''
+                    INSERT INTO loyalty_transactions (customer_id, invoice_id, points, type, description)
+                    VALUES (?, ?, ?, 'redeemed', ?)
+                ''', (customer_id, invoice_id, -loyalty_points_redeemed, f'استخدام نقاط - خصم {loyalty_discount:.3f} د.ك'))
         
         conn.commit()
         conn.close()
@@ -1880,6 +1923,255 @@ def profit_loss():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+# ===============================================
+# 🎯 APIs نظام الولاء (Loyalty System)
+# ===============================================
+
+@app.route('/api/customers', methods=['GET'])
+def get_customers():
+    """جلب جميع العملاء"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT id, name, phone, email, points, total_spent, 
+                   join_date, last_visit, notes, is_active
+            FROM customers 
+            WHERE is_active = 1
+            ORDER BY name
+        ''')
+        customers = [dict_from_row(row) for row in cursor.fetchall()]
+        conn.close()
+        return jsonify({'success': True, 'customers': customers})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/customers/<int:customer_id>', methods=['GET'])
+def get_customer(customer_id):
+    """جلب تفاصيل عميل محدد"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # بيانات العميل
+        cursor.execute('''
+            SELECT id, name, phone, email, points, total_spent,
+                   join_date, last_visit, notes, is_active
+            FROM customers
+            WHERE id = ?
+        ''', (customer_id,))
+        customer = cursor.fetchone()
+        
+        if not customer:
+            conn.close()
+            return jsonify({'success': False, 'error': 'العميل غير موجود'}), 404
+        
+        customer_data = dict_from_row(customer)
+        
+        # تاريخ النقاط
+        cursor.execute('''
+            SELECT id, points, type, description, created_at
+            FROM loyalty_transactions
+            WHERE customer_id = ?
+            ORDER BY created_at DESC
+            LIMIT 50
+        ''', (customer_id,))
+        transactions = [dict_from_row(row) for row in cursor.fetchall()]
+        customer_data['transactions'] = transactions
+        
+        conn.close()
+        return jsonify({'success': True, 'customer': customer_data})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/customers/search', methods=['GET'])
+def search_customer():
+    """البحث عن عميل بالهاتف"""
+    try:
+        phone = request.args.get('phone', '').strip()
+        if not phone:
+            return jsonify({'success': False, 'error': 'رقم الهاتف مطلوب'}), 400
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT id, name, phone, email, points, total_spent,
+                   join_date, last_visit
+            FROM customers
+            WHERE phone = ? AND is_active = 1
+        ''', (phone,))
+        customer = cursor.fetchone()
+        conn.close()
+        
+        if customer:
+            return jsonify({'success': True, 'customer': dict_from_row(customer)})
+        else:
+            return jsonify({'success': False, 'error': 'العميل غير موجود'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/customers', methods=['POST'])
+def add_customer():
+    """إضافة عميل جديد"""
+    try:
+        data = request.json
+        
+        # التحقق من البيانات المطلوبة
+        if not data.get('name') or not data.get('phone'):
+            return jsonify({'success': False, 'error': 'الاسم ورقم الهاتف مطلوبان'}), 400
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # التحقق من عدم تكرار الهاتف
+        cursor.execute('SELECT id FROM customers WHERE phone = ?', (data.get('phone'),))
+        if cursor.fetchone():
+            conn.close()
+            return jsonify({'success': False, 'error': 'رقم الهاتف مستخدم بالفعل'}), 400
+        
+        cursor.execute('''
+            INSERT INTO customers (name, phone, email, points, notes)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (
+            data.get('name'),
+            data.get('phone'),
+            data.get('email', ''),
+            data.get('points', 0),
+            data.get('notes', '')
+        ))
+        
+        customer_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True, 'id': customer_id})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/customers/<int:customer_id>', methods=['PUT'])
+def update_customer(customer_id):
+    """تحديث بيانات عميل"""
+    try:
+        data = request.json
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # التحقق من وجود العميل
+        cursor.execute('SELECT id FROM customers WHERE id = ?', (customer_id,))
+        if not cursor.fetchone():
+            conn.close()
+            return jsonify({'success': False, 'error': 'العميل غير موجود'}), 404
+        
+        # تحديث البيانات
+        cursor.execute('''
+            UPDATE customers
+            SET name = ?, phone = ?, email = ?, notes = ?
+            WHERE id = ?
+        ''', (
+            data.get('name'),
+            data.get('phone'),
+            data.get('email', ''),
+            data.get('notes', ''),
+            customer_id
+        ))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/customers/<int:customer_id>', methods=['DELETE'])
+def delete_customer(customer_id):
+    """حذف (إلغاء تفعيل) عميل"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('UPDATE customers SET is_active = 0 WHERE id = ?', (customer_id,))
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/customers/<int:customer_id>/points/adjust', methods=['POST'])
+def adjust_customer_points(customer_id):
+    """تعديل نقاط العميل يدوياً"""
+    try:
+        data = request.json
+        points = data.get('points', 0)
+        reason = data.get('reason', 'تعديل يدوي')
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # تحديث النقاط
+        cursor.execute('''
+            UPDATE customers
+            SET points = points + ?
+            WHERE id = ?
+        ''', (points, customer_id))
+        
+        # تسجيل في تاريخ النقاط
+        cursor.execute('''
+            INSERT INTO loyalty_transactions (customer_id, points, type, description)
+            VALUES (?, ?, 'adjusted', ?)
+        ''', (customer_id, points, reason))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/loyalty/stats', methods=['GET'])
+def get_loyalty_stats():
+    """إحصائيات نظام الولاء"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # إجمالي العملاء
+        cursor.execute('SELECT COUNT(*) as total FROM customers WHERE is_active = 1')
+        total_customers = cursor.fetchone()[0]
+        
+        # إجمالي النقاط الموزعة
+        cursor.execute('SELECT SUM(points) as total FROM customers WHERE is_active = 1')
+        total_points = cursor.fetchone()[0] or 0
+        
+        # إجمالي المبيعات للعملاء
+        cursor.execute('SELECT SUM(total_spent) as total FROM customers WHERE is_active = 1')
+        total_sales = cursor.fetchone()[0] or 0
+        
+        # أفضل 10 عملاء
+        cursor.execute('''
+            SELECT name, phone, points, total_spent
+            FROM customers
+            WHERE is_active = 1
+            ORDER BY total_spent DESC
+            LIMIT 10
+        ''')
+        top_customers = [dict_from_row(row) for row in cursor.fetchall()]
+        
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'stats': {
+                'total_customers': total_customers,
+                'total_points': total_points,
+                'total_sales': total_sales,
+                'top_customers': top_customers
+            }
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 # ===== تشغيل الخادم =====
 
 if __name__ == '__main__':
@@ -1889,3 +2181,644 @@ if __name__ == '__main__':
     print("⏹️  لإيقاف الخادم: اضغط Ctrl+C")
     
     app.run(host='0.0.0.0', port=5000, debug=False)
+
+# ===============================================
+# 🔄 APIs نظام المسترجع (Returns System)
+# ===============================================
+
+@app.route('/api/returns', methods=['GET'])
+def get_returns():
+    """جلب جميع المرتجعات"""
+    try:
+        branch_id = request.args.get('branch_id')
+        status = request.args.get('status')
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        query = '''
+            SELECT r.*, i.invoice_number, c.name as customer_name, u.full_name as processed_by_name
+            FROM returns r
+            LEFT JOIN invoices i ON r.invoice_id = i.id
+            LEFT JOIN customers c ON r.customer_id = c.id
+            LEFT JOIN users u ON r.processed_by = u.id
+            WHERE 1=1
+        '''
+        params = []
+        
+        if status:
+            query += ' AND r.status = ?'
+            params.append(status)
+        
+        query += ' ORDER BY r.return_date DESC'
+        
+        cursor.execute(query, params)
+        returns = [dict_from_row(row) for row in cursor.fetchall()]
+        conn.close()
+        
+        return jsonify({'success': True, 'returns': returns})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/returns/<int:return_id>', methods=['GET'])
+def get_return(return_id):
+    """جلب تفاصيل مرتجع"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT r.*, i.invoice_number, c.name as customer_name, c.phone as customer_phone
+            FROM returns r
+            LEFT JOIN invoices i ON r.invoice_id = i.id
+            LEFT JOIN customers c ON r.customer_id = c.id
+            WHERE r.id = ?
+        ''', (return_id,))
+        
+        return_data = cursor.fetchone()
+        if not return_data:
+            conn.close()
+            return jsonify({'success': False, 'error': 'المرتجع غير موجود'}), 404
+        
+        return_dict = dict_from_row(return_data)
+        
+        # جلب العناصر
+        cursor.execute('''
+            SELECT * FROM return_items WHERE return_id = ?
+        ''', (return_id,))
+        items = [dict_from_row(row) for row in cursor.fetchall()]
+        return_dict['items'] = items
+        
+        conn.close()
+        return jsonify({'success': True, 'return': return_dict})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/returns', methods=['POST'])
+def create_return():
+    """إنشاء مرتجع جديد"""
+    try:
+        data = request.json
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # إدراج المرتجع
+        cursor.execute('''
+            INSERT INTO returns 
+            (invoice_id, customer_id, total_amount, refund_method, reason, status, processed_by, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            data.get('invoice_id'),
+            data.get('customer_id'),
+            data.get('total_amount', 0),
+            data.get('refund_method', 'cash'),
+            data.get('reason', ''),
+            data.get('status', 'pending'),
+            data.get('processed_by'),
+            data.get('notes', '')
+        ))
+        
+        return_id = cursor.lastrowid
+        
+        # إدراج العناصر المرتجعة
+        for item in data.get('items', []):
+            cursor.execute('''
+                INSERT INTO return_items 
+                (return_id, product_id, product_name, quantity, unit_price, total)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (
+                return_id,
+                item.get('product_id'),
+                item.get('product_name'),
+                item.get('quantity'),
+                item.get('unit_price'),
+                item.get('total')
+            ))
+            
+            # إرجاع المخزون (إذا كان معتمد)
+            if data.get('status') == 'approved':
+                cursor.execute('''
+                    UPDATE branch_stock 
+                    SET stock = stock + ?
+                    WHERE product_id = ?
+                ''', (item.get('quantity'), item.get('product_id')))
+        
+        # خصم من نقاط الولاء (إذا كان معتمد وهناك عميل)
+        if data.get('status') == 'approved' and data.get('customer_id'):
+            points_to_deduct = int(data.get('total_amount', 0))
+            cursor.execute('''
+                UPDATE customers 
+                SET points = MAX(0, points - ?),
+                    total_spent = MAX(0, total_spent - ?)
+                WHERE id = ?
+            ''', (points_to_deduct, data.get('total_amount', 0), data.get('customer_id')))
+            
+            # تسجيل في تاريخ النقاط
+            cursor.execute('''
+                INSERT INTO loyalty_transactions (customer_id, points, type, description)
+                VALUES (?, ?, 'adjusted', ?)
+            ''', (data.get('customer_id'), -points_to_deduct, f'خصم نقاط - مرتجع #{return_id}'))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True, 'id': return_id})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/returns/<int:return_id>/approve', methods=['POST'])
+def approve_return(return_id):
+    """اعتماد مرتجع"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # الحصول على بيانات المرتجع
+        cursor.execute('SELECT * FROM returns WHERE id = ?', (return_id,))
+        return_data = cursor.fetchone()
+        
+        if not return_data:
+            conn.close()
+            return jsonify({'success': False, 'error': 'المرتجع غير موجود'}), 404
+        
+        return_dict = dict_from_row(return_data)
+        
+        # تحديث الحالة
+        cursor.execute('''
+            UPDATE returns SET status = 'approved' WHERE id = ?
+        ''', (return_id,))
+        
+        # إرجاع المخزون
+        cursor.execute('SELECT * FROM return_items WHERE return_id = ?', (return_id,))
+        items = cursor.fetchall()
+        
+        for item in items:
+            item_dict = dict_from_row(item)
+            cursor.execute('''
+                UPDATE branch_stock 
+                SET stock = stock + ?
+                WHERE product_id = ?
+            ''', (item_dict['quantity'], item_dict['product_id']))
+        
+        # خصم النقاط
+        if return_dict['customer_id']:
+            points_to_deduct = int(return_dict['total_amount'])
+            cursor.execute('''
+                UPDATE customers 
+                SET points = MAX(0, points - ?),
+                    total_spent = MAX(0, total_spent - ?)
+                WHERE id = ?
+            ''', (points_to_deduct, return_dict['total_amount'], return_dict['customer_id']))
+            
+            cursor.execute('''
+                INSERT INTO loyalty_transactions (customer_id, points, type, description)
+                VALUES (?, ?, 'adjusted', ?)
+            ''', (return_dict['customer_id'], -points_to_deduct, f'خصم نقاط - مرتجع #{return_id}'))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/returns/<int:return_id>/reject', methods=['POST'])
+def reject_return(return_id):
+    """رفض مرتجع"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            UPDATE returns SET status = 'rejected' WHERE id = ?
+        ''', (return_id,))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ===============================================
+# 📦 APIs حالات الطلب (Order Status)
+# ===============================================
+
+@app.route('/api/invoices/<int:invoice_id>/status', methods=['PUT'])
+def update_order_status(invoice_id):
+    """تحديث حالة الطلب"""
+    try:
+        data = request.json
+        new_status = data.get('status')
+        changed_by = data.get('changed_by')
+        notes = data.get('notes', '')
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # الحصول على الحالة القديمة
+        cursor.execute('SELECT order_status FROM invoices WHERE id = ?', (invoice_id,))
+        result = cursor.fetchone()
+        old_status = result[0] if result else None
+        
+        # تحديث الحالة
+        cursor.execute('''
+            UPDATE invoices SET order_status = ? WHERE id = ?
+        ''', (new_status, invoice_id))
+        
+        # تسجيل في التاريخ
+        cursor.execute('''
+            INSERT INTO order_status_history (invoice_id, old_status, new_status, changed_by, notes)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (invoice_id, old_status, new_status, changed_by, notes))
+        
+        # تحديث actual_delivery إذا كانت الحالة delivered
+        if new_status == 'delivered':
+            cursor.execute('''
+                UPDATE invoices SET actual_delivery = CURRENT_TIMESTAMP WHERE id = ?
+            ''', (invoice_id,))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/orders/by-status', methods=['GET'])
+def get_orders_by_status():
+    """جلب الطلبات حسب الحالة"""
+    try:
+        status = request.args.get('status')
+        branch_id = request.args.get('branch_id')
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        query = '''
+            SELECT id, invoice_number, customer_name, total, order_status, date
+            FROM invoices
+            WHERE 1=1
+        '''
+        params = []
+        
+        if status:
+            query += ' AND order_status = ?'
+            params.append(status)
+        
+        if branch_id:
+            query += ' AND branch_id = ?'
+            params.append(branch_id)
+        
+        query += ' ORDER BY date DESC'
+        
+        cursor.execute(query, params)
+        orders = [dict_from_row(row) for row in cursor.fetchall()]
+        conn.close()
+        
+        return jsonify({'success': True, 'orders': orders})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ===============================================
+# 🏭 APIs نظام الموردين (Suppliers System)
+# ===============================================
+
+@app.route('/api/suppliers', methods=['GET'])
+def get_suppliers():
+    """جلب جميع الموردين"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT * FROM suppliers WHERE is_active = 1 ORDER BY name
+        ''')
+        suppliers = [dict_from_row(row) for row in cursor.fetchall()]
+        conn.close()
+        return jsonify({'success': True, 'suppliers': suppliers})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/suppliers', methods=['POST'])
+def add_supplier():
+    """إضافة مورد جديد"""
+    try:
+        data = request.json
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO suppliers (name, company, phone, email, address, tax_number, payment_terms, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            data.get('name'),
+            data.get('company', ''),
+            data.get('phone', ''),
+            data.get('email', ''),
+            data.get('address', ''),
+            data.get('tax_number', ''),
+            data.get('payment_terms', ''),
+            data.get('notes', '')
+        ))
+        
+        supplier_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True, 'id': supplier_id})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/suppliers/<int:supplier_id>', methods=['PUT'])
+def update_supplier(supplier_id):
+    """تحديث مورد"""
+    try:
+        data = request.json
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            UPDATE suppliers
+            SET name = ?, company = ?, phone = ?, email = ?, 
+                address = ?, tax_number = ?, payment_terms = ?, notes = ?
+            WHERE id = ?
+        ''', (
+            data.get('name'),
+            data.get('company', ''),
+            data.get('phone', ''),
+            data.get('email', ''),
+            data.get('address', ''),
+            data.get('tax_number', ''),
+            data.get('payment_terms', ''),
+            data.get('notes', ''),
+            supplier_id
+        ))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/purchase-orders', methods=['POST'])
+def create_purchase_order():
+    """إنشاء طلب شراء"""
+    try:
+        data = request.json
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO purchase_orders 
+            (supplier_id, order_number, expected_date, total_amount, tax_amount, 
+             discount, final_amount, notes, created_by, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            data.get('supplier_id'),
+            data.get('order_number'),
+            data.get('expected_date'),
+            data.get('total_amount', 0),
+            data.get('tax_amount', 0),
+            data.get('discount', 0),
+            data.get('final_amount', 0),
+            data.get('notes', ''),
+            data.get('created_by'),
+            data.get('status', 'draft')
+        ))
+        
+        po_id = cursor.lastrowid
+        
+        # إضافة العناصر
+        for item in data.get('items', []):
+            cursor.execute('''
+                INSERT INTO purchase_order_items 
+                (purchase_order_id, product_id, product_name, quantity, unit_cost, total)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (
+                po_id,
+                item.get('product_id'),
+                item.get('product_name'),
+                item.get('quantity'),
+                item.get('unit_cost'),
+                item.get('total')
+            ))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True, 'id': po_id})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ===============================================
+# 🎟️ APIs نظام الكوبونات (Coupons System)
+# ===============================================
+
+@app.route('/api/coupons', methods=['GET'])
+def get_coupons():
+    """جلب جميع الكوبونات"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT * FROM coupons ORDER BY created_at DESC
+        ''')
+        coupons = [dict_from_row(row) for row in cursor.fetchall()]
+        conn.close()
+        return jsonify({'success': True, 'coupons': coupons})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/coupons/validate', methods=['POST'])
+def validate_coupon():
+    """التحقق من صلاحية كوبون"""
+    try:
+        data = request.json
+        code = data.get('code')
+        customer_id = data.get('customer_id')
+        total = data.get('total', 0)
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # جلب الكوبون
+        cursor.execute('''
+            SELECT * FROM coupons WHERE code = ? AND status = 'active'
+        ''', (code,))
+        coupon = cursor.fetchone()
+        
+        if not coupon:
+            conn.close()
+            return jsonify({'success': False, 'error': 'الكوبون غير صالح'}), 400
+        
+        coupon_dict = dict_from_row(coupon)
+        
+        # التحقق من التواريخ
+        now = datetime.now()
+        if coupon_dict.get('start_date') and datetime.fromisoformat(coupon_dict['start_date']) > now:
+            conn.close()
+            return jsonify({'success': False, 'error': 'الكوبون لم يبدأ بعد'}), 400
+        
+        if coupon_dict.get('end_date') and datetime.fromisoformat(coupon_dict['end_date']) < now:
+            conn.close()
+            return jsonify({'success': False, 'error': 'الكوبون منتهي الصلاحية'}), 400
+        
+        # التحقق من حد الاستخدام
+        if coupon_dict.get('usage_limit') and coupon_dict['usage_count'] >= coupon_dict['usage_limit']:
+            conn.close()
+            return jsonify({'success': False, 'error': 'تم استخدام الكوبون بالكامل'}), 400
+        
+        # التحقق من الحد الأدنى للشراء
+        if coupon_dict.get('min_purchase', 0) > total:
+            conn.close()
+            return jsonify({'success': False, 'error': f'الحد الأدنى للشراء {coupon_dict["min_purchase"]} د.ك'}), 400
+        
+        # حساب الخصم
+        if coupon_dict['discount_type'] == 'percentage':
+            discount = total * (coupon_dict['discount_value'] / 100)
+            if coupon_dict.get('max_discount'):
+                discount = min(discount, coupon_dict['max_discount'])
+        else:
+            discount = coupon_dict['discount_value']
+        
+        discount = min(discount, total)
+        
+        conn.close()
+        return jsonify({
+            'success': True,
+            'coupon': coupon_dict,
+            'discount': discount
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/coupons', methods=['POST'])
+def create_coupon():
+    """إنشاء كوبون جديد"""
+    try:
+        data = request.json
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO coupons 
+            (code, name, description, discount_type, discount_value, min_purchase,
+             max_discount, usage_limit, per_customer_limit, start_date, end_date,
+             status, applicable_to, applicable_ids, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            data.get('code'),
+            data.get('name', ''),
+            data.get('description', ''),
+            data.get('discount_type'),
+            data.get('discount_value'),
+            data.get('min_purchase', 0),
+            data.get('max_discount'),
+            data.get('usage_limit'),
+            data.get('per_customer_limit', 1),
+            data.get('start_date'),
+            data.get('end_date'),
+            data.get('status', 'active'),
+            data.get('applicable_to', 'all'),
+            data.get('applicable_ids'),
+            data.get('created_by')
+        ))
+        
+        coupon_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True, 'id': coupon_id})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/coupons/<int:coupon_id>/use', methods={'POST'})
+def use_coupon(coupon_id):
+    """تسجيل استخدام كوبون"""
+    try:
+        data = request.json
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # تحديث عدد الاستخدامات
+        cursor.execute('''
+            UPDATE coupons SET usage_count = usage_count + 1 WHERE id = ?
+        ''', (coupon_id,))
+        
+        # تسجيل الاستخدام
+        cursor.execute('''
+            INSERT INTO coupon_usage (coupon_id, customer_id, invoice_id, discount_amount)
+            VALUES (?, ?, ?, ?)
+        ''', (
+            coupon_id,
+            data.get('customer_id'),
+            data.get('invoice_id'),
+            data.get('discount_amount')
+        ))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ===============================================
+# ➕ APIs العمليات الإضافية
+# ===============================================
+
+@app.route('/api/operation-templates', methods=['GET'])
+def get_operation_templates():
+    """جلب قوالب العمليات"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT * FROM operation_templates WHERE is_active = 1 ORDER BY name
+        ''')
+        templates = [dict_from_row(row) for row in cursor.fetchall()]
+        conn.close()
+        return jsonify({'success': True, 'templates': templates})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/operation-templates', methods=['POST'])
+def add_operation_template():
+    """إضافة قالب عملية"""
+    try:
+        data = request.json
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO operation_templates (name, amount, taxable)
+            VALUES (?, ?, ?)
+        ''', (
+            data.get('name'),
+            data.get('amount', 0),
+            data.get('taxable', 0)
+        ))
+        
+        template_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True, 'id': template_id})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ===============================================
+# 🔐 API التحقق من الاتصال
+# ===============================================
+
+@app.route('/api/ping', methods=['GET'])
+def ping():
+    """التحقق من اتصال الخادم"""
+    return jsonify({'success': True, 'message': 'Server is online'})
+

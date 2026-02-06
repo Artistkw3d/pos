@@ -3,6 +3,7 @@ let currentUser = null;
 let cart = [];
 let allProducts = [];
 let allInvoices = [];
+let allCustomers = [];
 let currentInvoice = null;
 let categories = new Set();
 let storeLogo = null;
@@ -316,6 +317,7 @@ function showTab(tabName) {
         'products': 'productsTab',
         'inventory': 'inventoryTab',
         'invoices': 'invoicesTab',
+        'returns': 'returnsTab',
         'customers': 'customersTab',
         'reports': 'reportsTab',
         'expenses': 'expensesTab',
@@ -354,6 +356,7 @@ function showTab(tabName) {
             }
         }
         if (tabName === 'invoices') loadInvoicesTable();
+        if (tabName === 'returns') loadReturns();
         if (tabName === 'customers') {
             loadCustomers();
             // إخفاء أزرار العملاء حسب الصلاحيات
@@ -598,6 +601,13 @@ function clearSaleForm() {
     document.getElementById('paymentMethod').value = 'cash';
     document.getElementById('transactionNumber').value = '';
     toggleTransactionNumber();
+    
+    // مسح بيانات الولاء
+    document.getElementById('selectedCustomerId').value = '';
+    document.getElementById('pointsToRedeem').value = '';
+    document.getElementById('loyaltySection').style.display = 'none';
+    document.getElementById('loyaltyDiscountRow').style.display = 'none';
+    currentCustomerData = null;
 }
 
 // تحديث المخزون المحلي
@@ -692,8 +702,8 @@ async function completeSale() {
     const customerAddress = document.getElementById('customerAddress').value || '';
     
     // حفظ العميل إذا كان لديه بيانات (فقط online)
-    let customerId = null;
-    if ((customerName || customerPhone) && navigator.onLine) {
+    let customerId = document.getElementById('selectedCustomerId').value || null;
+    if (!customerId && (customerName || customerPhone) && navigator.onLine) {
         try {
             const customerResponse = await fetch(`${API_URL}/api/customers`, {
                 method: 'POST',
@@ -713,6 +723,11 @@ async function completeSale() {
         }
     }
     
+    // بيانات الولاء
+    const pointsToRedeem = parseInt(document.getElementById('pointsToRedeem').value) || 0;
+    const loyaltyDiscount = pointsToRedeem / 100;
+    const pointsEarned = customerId ? Math.floor(total) : 0;
+    
     const invoiceData = {
         invoice_number: invoiceNumber,
         customer_id: customerId,
@@ -727,6 +742,9 @@ async function completeSale() {
         transaction_number: transactionNumber,
         employee_name: currentUser.full_name,
         branch_id: currentUser.branch_id || 1,
+        loyalty_points_earned: pointsEarned,
+        loyalty_points_redeemed: pointsToRedeem,
+        loyalty_discount: loyaltyDiscount,
         items: cart.map(item => ({
             product_id: item.id,
             product_name: item.name,
@@ -4643,3 +4661,607 @@ function initializeInventoryCosts() {
 }
 
 console.log('[Inventory Costs] System loaded ✅');
+
+// ===============================================
+// 🎯 نظام الولاء (Loyalty System)
+// ===============================================
+
+let currentCustomerData = null;
+
+// تحميل جميع العملاء
+async function loadCustomers() {
+    try {
+        const response = await fetch(`${API_URL}/api/customers`);
+        const data = await response.json();
+        
+        if (data.success) {
+            allCustomers = data.customers;
+            displayCustomersTable(allCustomers);
+        }
+    } catch (error) {
+        console.error('Error loading customers:', error);
+    }
+}
+
+// عرض جدول العملاء
+function displayCustomersTable(customers) {
+    const container = document.getElementById('customersTableContainer');
+    if (!container) return;
+    
+    if (!customers || customers.length === 0) {
+        container.innerHTML = '<div style="text-align: center; padding: 40px; color: #666;">لا يوجد عملاء</div>';
+        return;
+    }
+    
+    let html = `
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>الاسم</th>
+                    <th>الهاتف</th>
+                    <th>💎 النقاط</th>
+                    <th>💰 إجمالي المشتريات</th>
+                    <th>📅 آخر زيارة</th>
+                    <th>إجراءات</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+    
+    customers.forEach(c => {
+        const lastVisit = c.last_visit ? new Date(c.last_visit).toLocaleDateString('ar-EG') : 'لا يوجد';
+        html += `
+            <tr>
+                <td>${c.name}</td>
+                <td>${c.phone}</td>
+                <td><span style="font-weight: bold; color: #0ea5e9;">${c.points || 0}</span></td>
+                <td>${(c.total_spent || 0).toFixed(3)} د.ك</td>
+                <td>${lastVisit}</td>
+                <td>
+                    <button onclick="editCustomer(${c.id})" class="btn-sm">✏️</button>
+                    <button onclick="viewCustomerDetails(${c.id})" class="btn-sm" style="background: #0ea5e9;">👁️</button>
+                    <button onclick="deleteCustomer(${c.id})" class="btn-sm btn-danger">🗑️</button>
+                </td>
+            </tr>
+        `;
+    });
+    
+    html += '</tbody></table>';
+    container.innerHTML = html;
+}
+
+// البحث عن عملاء
+function searchCustomers() {
+    const searchTerm = document.getElementById('customerSearch').value.toLowerCase();
+    if (!searchTerm) {
+        displayCustomersTable(allCustomers);
+        return;
+    }
+    
+    const filtered = allCustomers.filter(c => 
+        c.name.toLowerCase().includes(searchTerm) ||
+        c.phone.includes(searchTerm) ||
+        (c.email && c.email.toLowerCase().includes(searchTerm))
+    );
+    
+    displayCustomersTable(filtered);
+}
+
+// إظهار نموذج إضافة عميل
+function showAddCustomer() {
+    document.getElementById('customerModalTitle').textContent = '➕ إضافة عميل';
+    document.getElementById('customerForm').reset();
+    document.getElementById('customerId').value = '';
+    document.getElementById('loyaltyPointsSection').style.display = 'none';
+    document.getElementById('addCustomerModal').classList.add('active');
+}
+
+// إغلاق نموذج العميل
+function closeAddCustomer() {
+    document.getElementById('addCustomerModal').classList.remove('active');
+}
+
+// حفظ العميل
+document.getElementById('customerForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const customerId = document.getElementById('customerId').value;
+    const customerData = {
+        name: document.getElementById('customerNameField').value,
+        phone: document.getElementById('customerPhoneField').value,
+        email: document.getElementById('customerEmailField').value,
+        notes: document.getElementById('customerNotes').value
+    };
+    
+    try {
+        const url = customerId ? `${API_URL}/api/customers/${customerId}` : `${API_URL}/api/customers`;
+        const method = customerId ? 'PUT' : 'POST';
+        
+        const response = await fetch(url, {
+            method: method,
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(customerData)
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert('✅ تم حفظ العميل بنجاح');
+            closeAddCustomer();
+            loadCustomers();
+        } else {
+            alert('❌ خطأ: ' + data.error);
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('❌ فشل الحفظ');
+    }
+});
+
+// تعديل عميل
+async function editCustomer(id) {
+    try {
+        const response = await fetch(`${API_URL}/api/customers/${id}`);
+        const data = await response.json();
+        
+        if (data.success) {
+            const c = data.customer;
+            document.getElementById('customerModalTitle').textContent = '✏️ تعديل عميل';
+            document.getElementById('customerId').value = c.id;
+            document.getElementById('customerNameField').value = c.name;
+            document.getElementById('customerPhoneField').value = c.phone;
+            document.getElementById('customerEmailField').value = c.email || '';
+            document.getElementById('customerNotes').value = c.notes || '';
+            
+            // عرض النقاط
+            document.getElementById('loyaltyPointsSection').style.display = 'block';
+            document.getElementById('customerCurrentPoints').textContent = c.points || 0;
+            document.getElementById('customerTotalSpent').textContent = (c.total_spent || 0).toFixed(3);
+            
+            currentCustomerData = c;
+            document.getElementById('addCustomerModal').classList.add('active');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('❌ فشل تحميل بيانات العميل');
+    }
+}
+
+// حذف عميل
+async function deleteCustomer(id) {
+    if (!confirm('هل أنت متأكد من حذف هذا العميل؟')) return;
+    
+    try {
+        const response = await fetch(`${API_URL}/api/customers/${id}`, {method: 'DELETE'});
+        const data = await response.json();
+        
+        if (data.success) {
+            alert('✅ تم حذف العميل');
+            loadCustomers();
+        } else {
+            alert('❌ خطأ: ' + data.error);
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('❌ فشل الحذف');
+    }
+}
+
+// إظهار نموذج تعديل النقاط
+function showAdjustPoints() {
+    if (!currentCustomerData) return;
+    
+    document.getElementById('adjustCurrentPoints').textContent = currentCustomerData.points || 0;
+    document.getElementById('pointsAdjustment').value = '';
+    document.getElementById('adjustReason').value = '';
+    document.getElementById('adjustPointsModal').classList.add('active');
+}
+
+// إغلاق نموذج تعديل النقاط
+function closeAdjustPoints() {
+    document.getElementById('adjustPointsModal').classList.remove('active');
+}
+
+// حفظ تعديل النقاط
+document.getElementById('adjustPointsForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    if (!currentCustomerData) return;
+    
+    const points = parseInt(document.getElementById('pointsAdjustment').value);
+    const reason = document.getElementById('adjustReason').value;
+    
+    try {
+        const response = await fetch(`${API_URL}/api/customers/${currentCustomerData.id}/points/adjust`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({points, reason})
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert('✅ تم تعديل النقاط بنجاح');
+            closeAdjustPoints();
+            
+            // تحديث النقاط المعروضة
+            const newPoints = (currentCustomerData.points || 0) + points;
+            document.getElementById('customerCurrentPoints').textContent = newPoints;
+            currentCustomerData.points = newPoints;
+            
+            loadCustomers();
+        } else {
+            alert('❌ خطأ: ' + data.error);
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('❌ فشل التعديل');
+    }
+});
+
+// البحث عن عميل بالهاتف (في الفاتورة)
+async function searchCustomerByPhone() {
+    const phone = document.getElementById('customerPhone').value.trim();
+    if (!phone || phone.length < 8) {
+        document.getElementById('loyaltySection').style.display = 'none';
+        document.getElementById('selectedCustomerId').value = '';
+        currentCustomerData = null;
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_URL}/api/customers/search?phone=${encodeURIComponent(phone)}`);
+        const data = await response.json();
+        
+        if (data.success && data.customer) {
+            const c = data.customer;
+            currentCustomerData = c;
+            
+            // ملء البيانات
+            document.getElementById('customerName').value = c.name;
+            document.getElementById('selectedCustomerId').value = c.id;
+            
+            // عرض قسم الولاء
+            document.getElementById('loyaltySection').style.display = 'block';
+            document.getElementById('customerLoyaltyPoints').textContent = c.points || 0;
+            
+            // حساب النقاط التي سيربحها
+            updatePointsToEarn();
+        } else {
+            document.getElementById('loyaltySection').style.display = 'none';
+            document.getElementById('selectedCustomerId').value = '';
+            currentCustomerData = null;
+        }
+    } catch (error) {
+        console.error('Error:', error);
+    }
+}
+
+// تحديث النقاط التي سيربحها العميل
+function updatePointsToEarn() {
+    const total = calculateSubtotal();
+    const pointsToEarn = Math.floor(total); // 1 دينار = 1 نقطة
+    document.getElementById('pointsToEarn').textContent = pointsToEarn;
+}
+
+// حساب خصم الولاء
+function calculateLoyaltyDiscount() {
+    const pointsToRedeem = parseInt(document.getElementById('pointsToRedeem').value) || 0;
+    const availablePoints = currentCustomerData ? (currentCustomerData.points || 0) : 0;
+    
+    if (pointsToRedeem > availablePoints) {
+        alert('⚠️ النقاط المطلوبة أكبر من النقاط المتاحة');
+        document.getElementById('pointsToRedeem').value = availablePoints;
+        return;
+    }
+    
+    // 100 نقطة = 1 دينار
+    const discount = pointsToRedeem / 100;
+    
+    // عرض الخصم
+    if (discount > 0) {
+        document.getElementById('loyaltyDiscountRow').style.display = 'flex';
+        document.getElementById('loyaltyDiscountAmount').textContent = discount.toFixed(3) + ' د.ك';
+    } else {
+        document.getElementById('loyaltyDiscountRow').style.display = 'none';
+    }
+    
+    updateTotals();
+}
+
+// استخدام كل النقاط
+function applyMaxPoints() {
+    if (!currentCustomerData) return;
+    
+    const availablePoints = currentCustomerData.points || 0;
+    const total = calculateSubtotal();
+    const maxDiscount = total;
+    const maxPointsToUse = Math.min(availablePoints, Math.floor(maxDiscount * 100));
+    
+    // تقريب لأقرب 100
+    const roundedPoints = Math.floor(maxPointsToUse / 100) * 100;
+    
+    document.getElementById('pointsToRedeem').value = roundedPoints;
+    calculateLoyaltyDiscount();
+}
+
+// تحديث دالة updateTotals لدعم خصم الولاء
+const originalUpdateTotals = updateTotals;
+updateTotals = function() {
+    originalUpdateTotals();
+    
+    // إضافة خصم الولاء
+    const pointsToRedeem = parseInt(document.getElementById('pointsToRedeem').value) || 0;
+    const loyaltyDiscount = pointsToRedeem / 100;
+    
+    if (loyaltyDiscount > 0) {
+        const currentTotal = parseFloat(document.getElementById('total').textContent.replace(/[^\d.]/g, ''));
+        const newTotal = Math.max(0, currentTotal - loyaltyDiscount);
+        document.getElementById('total').textContent = newTotal.toFixed(3) + ' د.ك';
+    }
+    
+    // تحديث النقاط التي سيربحها
+    if (currentCustomerData) {
+        updatePointsToEarn();
+    }
+};
+
+// تحديث دالة completeSale لدعم الولاء
+const originalCompleteSale = completeSale;
+completeSale = async function() {
+    // جمع بيانات الولاء
+    const customerId = document.getElementById('selectedCustomerId').value;
+    const pointsToRedeem = parseInt(document.getElementById('pointsToRedeem').value) || 0;
+    const loyaltyDiscount = pointsToRedeem / 100;
+    
+    // حساب النقاط المكتسبة
+    const finalTotal = parseFloat(document.getElementById('total').textContent.replace(/[^\d.]/g, ''));
+    const pointsEarned = Math.floor(finalTotal);
+    
+    // إضافة البيانات للفاتورة
+    if (customerId) {
+        // تعديل invoiceData في الدالة الأصلية
+        window.loyaltyData = {
+            customer_id: parseInt(customerId),
+            loyalty_points_earned: pointsEarned,
+            loyalty_points_redeemed: pointsToRedeem,
+            loyalty_discount: loyaltyDiscount
+        };
+    }
+    
+    // استدعاء الدالة الأصلية
+    await originalCompleteSale();
+    
+    // مسح بيانات الولاء بعد الحفظ
+    document.getElementById('loyaltySection').style.display = 'none';
+    document.getElementById('selectedCustomerId').value = '';
+    document.getElementById('pointsToRedeem').value = '';
+    document.getElementById('loyaltyDiscountRow').style.display = 'none';
+    currentCustomerData = null;
+};
+
+console.log('[Loyalty System] Loaded ✅');
+
+
+// ===============================================
+// 🔐 إصلاح تسجيل الخروج (Offline Protection)
+// ===============================================
+
+// التحقق من الاتصال
+async function checkConnection() {
+    try {
+        const response = await fetch(`${API_URL}/api/ping`, {
+            method: 'GET',
+            cache: 'no-cache'
+        });
+        return response.ok;
+    } catch {
+        return false;
+    }
+}
+
+// تسجيل الخروج المحدث
+async function logout() {
+    try {
+        // التحقق من الاتصال أولاً
+        const isOnline = await checkConnection();
+        
+        if (!isOnline) {
+            alert('⚠️ لا يمكن تسجيل الخروج بدون اتصال بالإنترنت\n' +
+                  'الرجاء التحقق من الاتصال والمحاولة مرة أخرى');
+            return;
+        }
+        
+        // تسجيل الخروج من الخادم
+        const response = await fetch(`${API_URL}/api/logout`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        });
+        
+        if (response.ok) {
+            // مسح البيانات المحلية
+            localStorage.removeItem('pos_current_user');
+            window.location.href = '/login.html';
+        }
+    } catch (error) {
+        console.error('Logout error:', error);
+        alert('⚠️ خطأ في تسجيل الخروج. تحقق من الاتصال.');
+    }
+}
+
+console.log('[Logout Protection] Loaded ✅');
+
+
+// ===============================================
+// 🔄 نظام المسترجع (Returns System)
+// ===============================================
+
+let allReturns = [];
+
+// تحميل المرتجعات
+async function loadReturns(status = '') {
+    try {
+        let url = `${API_URL}/api/returns`;
+        if (status) url += `?status=${status}`;
+        
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        if (data.success) {
+            allReturns = data.returns;
+            displayReturnsTable(allReturns);
+        }
+    } catch (error) {
+        console.error('Error loading returns:', error);
+    }
+}
+
+// عرض جدول المرتجعات
+function displayReturnsTable(returns) {
+    const container = document.getElementById('returnsTableContainer');
+    if (!container) return;
+    
+    if (!returns || returns.length === 0) {
+        container.innerHTML = '<div style="text-align: center; padding: 40px; color: #666;">لا توجد مرتجعات</div>';
+        return;
+    }
+    
+    let html = `
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>رقم المرتجع</th>
+                    <th>رقم الفاتورة</th>
+                    <th>العميل</th>
+                    <th>المبلغ</th>
+                    <th>طريقة الاسترجاع</th>
+                    <th>الحالة</th>
+                    <th>التاريخ</th>
+                    <th>إجراءات</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+    
+    returns.forEach(r => {
+        const statusColors = {
+            'pending': '#f59e0b',
+            'approved': '#38a169',
+            'rejected': '#ef4444'
+        };
+        const statusTexts = {
+            'pending': '⏳ قيد الانتظار',
+            'approved': '✅ معتمد',
+            'rejected': '❌ مرفوض'
+        };
+        
+        const refundMethods = {
+            'cash': '💵 نقدي',
+            'credit': '💳 رصيد',
+            'exchange': '🔄 استبدال'
+        };
+        
+        html += `
+            <tr>
+                <td>#${r.id}</td>
+                <td>${r.invoice_number || '-'}</td>
+                <td>${r.customer_name || 'غير محدد'}</td>
+                <td>${(r.total_amount || 0).toFixed(3)} د.ك</td>
+                <td>${refundMethods[r.refund_method] || r.refund_method}</td>
+                <td><span style="background: ${statusColors[r.status]}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px;">${statusTexts[r.status]}</span></td>
+                <td>${new Date(r.return_date).toLocaleDateString('ar-EG')}</td>
+                <td>
+                    <button onclick="viewReturn(${r.id})" class="btn-sm" style="background: #0ea5e9;">👁️</button>
+                    ${r.status === 'pending' ? `
+                        <button onclick="approveReturn(${r.id})" class="btn-sm" style="background: #38a169;">✅</button>
+                        <button onclick="rejectReturn(${r.id})" class="btn-sm btn-danger">❌</button>
+                    ` : ''}
+                </td>
+            </tr>
+        `;
+    });
+    
+    html += '</tbody></table>';
+    container.innerHTML = html;
+}
+
+// فلترة المرتجعات
+function filterReturns(status) {
+    if (status === 'all') {
+        displayReturnsTable(allReturns);
+    } else {
+        const filtered = allReturns.filter(r => r.status === status);
+        displayReturnsTable(filtered);
+    }
+}
+
+// إضافة مرتجع
+function showAddReturn() {
+    alert('ميزة إضافة المرتجع ستكون متاحة قريباً');
+    // TODO: إضافة modal لإنشاء مرتجع
+}
+
+// عرض تفاصيل مرتجع
+async function viewReturn(id) {
+    try {
+        const response = await fetch(`${API_URL}/api/returns/${id}`);
+        const data = await response.json();
+        
+        if (data.success) {
+            const r = data.return;
+            alert(`تفاصيل المرتجع #${r.id}\n\nالفاتورة: ${r.invoice_number}\nالعميل: ${r.customer_name}\nالمبلغ: ${r.total_amount} د.ك\nالسبب: ${r.reason}`);
+            // TODO: عرض في modal
+        }
+    } catch (error) {
+        console.error('Error:', error);
+    }
+}
+
+// اعتماد مرتجع
+async function approveReturn(id) {
+    if (!confirm('اعتماد هذا المرتجع؟\n- سيتم إرجاع المخزون\n- سيتم خصم النقاط من العميل')) return;
+    
+    try {
+        const response = await fetch(`${API_URL}/api/returns/${id}/approve`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            alert('✅ تم اعتماد المرتجع');
+            loadReturns();
+        } else {
+            alert('❌ خطأ: ' + data.error);
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('❌ فشل الاعتماد');
+    }
+}
+
+// رفض مرتجع
+async function rejectReturn(id) {
+    if (!confirm('رفض هذا المرتجع؟')) return;
+    
+    try {
+        const response = await fetch(`${API_URL}/api/returns/${id}/reject`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            alert('✅ تم رفض المرتجع');
+            loadReturns();
+        } else {
+            alert('❌ خطأ: ' + data.error);
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('❌ فشل الرفض');
+    }
+}
+
+console.log('[Returns System] Loaded ✅');
+
