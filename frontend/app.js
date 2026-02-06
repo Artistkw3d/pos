@@ -5265,3 +5265,292 @@ async function rejectReturn(id) {
 
 console.log('[Returns System] Loaded ✅');
 
+
+// ===============================================
+// 📦 حالات الطلب (Order Status)
+// ===============================================
+
+async function updateOrderStatus(invoiceId, newStatus, notes = '') {
+    try {
+        const response = await fetch(`${API_URL}/api/invoices/${invoiceId}/status`, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                status: newStatus,
+                changed_by: currentUser.id,
+                notes: notes
+            })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            alert('✅ تم تحديث حالة الطلب');
+            loadInvoicesTable();
+        } else {
+            alert('❌ خطأ: ' + data.error);
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('❌ فشل التحديث');
+    }
+}
+
+async function filterOrdersByStatus(status) {
+    try {
+        const response = await fetch(`${API_URL}/api/orders/by-status?status=${status}`);
+        const data = await response.json();
+        
+        if (data.success) {
+            displayOrdersTable(data.orders);
+        }
+    } catch (error) {
+        console.error('Error:', error);
+    }
+}
+
+console.log('[Order Status] Loaded ✅');
+
+// ===============================================
+// 🏭 نظام الموردين (Suppliers)
+// ===============================================
+
+let allSuppliers = [];
+
+async function loadSuppliers() {
+    try {
+        const response = await fetch(`${API_URL}/api/suppliers`);
+        const data = await response.json();
+        
+        if (data.success) {
+            allSuppliers = data.suppliers;
+            displaySuppliersTable(allSuppliers);
+        }
+    } catch (error) {
+        console.error('Error:', error);
+    }
+}
+
+function displaySuppliersTable(suppliers) {
+    // TODO: عرض جدول الموردين
+    console.log('Suppliers:', suppliers);
+}
+
+async function addSupplier(supplierData) {
+    try {
+        const response = await fetch(`${API_URL}/api/suppliers`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(supplierData)
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            alert('✅ تم إضافة المورد');
+            loadSuppliers();
+        } else {
+            alert('❌ خطأ: ' + data.error);
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('❌ فشل الإضافة');
+    }
+}
+
+async function createPurchaseOrder(poData) {
+    try {
+        const response = await fetch(`${API_URL}/api/purchase-orders`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(poData)
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            alert('✅ تم إنشاء طلب الشراء');
+        } else {
+            alert('❌ خطأ: ' + data.error);
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('❌ فشل الإنشاء');
+    }
+}
+
+console.log('[Suppliers System] Loaded ✅');
+
+// ===============================================
+// 🎟️ نظام الكوبونات (Coupons)
+// ===============================================
+
+let allCoupons = [];
+let currentCoupon = null;
+
+async function loadCoupons() {
+    try {
+        const response = await fetch(`${API_URL}/api/coupons`);
+        const data = await response.json();
+        
+        if (data.success) {
+            allCoupons = data.coupons;
+            displayCouponsTable(allCoupons);
+        }
+    } catch (error) {
+        console.error('Error:', error);
+    }
+}
+
+function displayCouponsTable(coupons) {
+    // TODO: عرض جدول الكوبونات
+    console.log('Coupons:', coupons);
+}
+
+async function validateCoupon(code, customerId, total) {
+    try {
+        const response = await fetch(`${API_URL}/api/coupons/validate`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                code: code,
+                customer_id: customerId,
+                total: total
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            currentCoupon = data.coupon;
+            return data.discount;
+        } else {
+            alert('❌ ' + data.error);
+            return 0;
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('❌ فشل التحقق من الكوبون');
+        return 0;
+    }
+}
+
+async function applyCouponCode() {
+    const code = document.getElementById('couponCodeInput')?.value;
+    if (!code) {
+        alert('⚠️ الرجاء إدخال كود الكوبون');
+        return;
+    }
+    
+    const customerId = document.getElementById('selectedCustomerId')?.value;
+    const total = calculateSubtotal();
+    
+    const discount = await validateCoupon(code, customerId, total);
+    
+    if (discount > 0) {
+        // تطبيق الخصم
+        document.getElementById('couponDiscountDisplay').textContent = discount.toFixed(3) + ' د.ك';
+        document.getElementById('couponDiscountRow').style.display = 'flex';
+        updateTotals();
+        
+        alert(`✅ تم تطبيق الكوبون!\nالخصم: ${discount.toFixed(3)} د.ك`);
+    }
+}
+
+async function createCoupon(couponData) {
+    try {
+        const response = await fetch(`${API_URL}/api/coupons`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(couponData)
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            alert('✅ تم إنشاء الكوبون');
+            loadCoupons();
+        } else {
+            alert('❌ خطأ: ' + data.error);
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('❌ فشل الإنشاء');
+    }
+}
+
+console.log('[Coupons System] Loaded ✅');
+
+// ===============================================
+// ➕ العمليات الإضافية (Additional Operations)
+// ===============================================
+
+let operationTemplates = [];
+let additionalOperations = [];
+
+async function loadOperationTemplates() {
+    try {
+        const response = await fetch(`${API_URL}/api/operation-templates`);
+        const data = await response.json();
+        
+        if (data.success) {
+            operationTemplates = data.templates;
+            displayOperationTemplates();
+        }
+    } catch (error) {
+        console.error('Error:', error);
+    }
+}
+
+function displayOperationTemplates() {
+    // TODO: عرض قوالب العمليات
+    console.log('Templates:', operationTemplates);
+}
+
+function addAdditionalOperation(name, amount, taxable = false) {
+    additionalOperations.push({
+        id: Date.now(),
+        name: name,
+        amount: amount,
+        taxable: taxable
+    });
+    
+    displayAdditionalOperations();
+    updateTotals();
+}
+
+function removeAdditionalOperation(id) {
+    additionalOperations = additionalOperations.filter(op => op.id !== id);
+    displayAdditionalOperations();
+    updateTotals();
+}
+
+function displayAdditionalOperations() {
+    const container = document.getElementById('additionalOperationsContainer');
+    if (!container) return;
+    
+    if (additionalOperations.length === 0) {
+        container.innerHTML = '<div style="color: #999; font-size: 12px;">لا توجد عمليات إضافية</div>';
+        return;
+    }
+    
+    let html = '';
+    additionalOperations.forEach(op => {
+        html += `
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 5px; background: #f8f9fa; border-radius: 4px; margin-bottom: 5px;">
+                <span style="font-size: 12px;">${op.name}</span>
+                <div>
+                    <span style="font-weight: bold; margin-right: 10px;">${op.amount.toFixed(3)} د.ك</span>
+                    <button onclick="removeAdditionalOperation(${op.id})" style="background: #ef4444; color: white; border: none; padding: 2px 6px; border-radius: 3px; cursor: pointer;">✖</button>
+                </div>
+            </div>
+        `;
+    });
+    
+    container.innerHTML = html;
+}
+
+function calculateAdditionalOperationsTotal() {
+    return additionalOperations.reduce((sum, op) => sum + op.amount, 0);
+}
+
+console.log('[Additional Operations] Loaded ✅');
+
+console.log('🎉 All Systems Loaded!');
+
